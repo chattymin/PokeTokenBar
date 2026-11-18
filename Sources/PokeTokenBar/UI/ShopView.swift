@@ -9,17 +9,26 @@ struct ShopView: View {
     let nav: PopoverNavigation
 
     var body: some View {
+        // The products' tab (#183): the eggs at first, as the Shop always opened on them, then the last one shown.
+        let tabs = store.shopTabs
+        let current = tabs.contains { $0.tab == nav.shopTab } ? nav.shopTab : (tabs.first?.tab ?? .eggs)
         // 고정 높이 — 컬렉션/가방과 동일(팝오버 재오픈 시 fitting size 축소 방지).
         ScrollView {
             VStack(alignment: .leading, spacing: 10) {
                 walletHeader(store.l)
                 // Prof. Oak's advice and, some days, the travelling merchant (2026-11-09).
                 ShopHeadCards(store: store, nav: nav)
-                // shopEntries = 판매 아이템 + 알 3종(보증 없음·고급 이상·희귀 이상)을 가격 오름차순으로
-                // 병합한 단일 목록. A bought egg goes in the Bag (`EggCard`).
-                ForEach(store.shopSections, id: \.section) { group in
-                    SectionTitle(text: store.l.shopSection(group.section))
-                        .padding(.top, 4)
+                // The products in tabs under the cards (#183), the switch the Pokédex and its log use: one tab's
+                // sections at a time instead of the page of all of them. A bought egg goes in the Bag (`EggCard`).
+                if tabs.count > 1 {
+                    PillPicker(selection: Binding(get: { current }, set: { nav.shopTab = $0 }),
+                               options: tabs.map { ($0.tab, store.l.shopTab($0.tab)) })
+                }
+                ForEach(tabs.first { $0.tab == current }?.sections ?? [], id: \.section) { group in
+                    if current.namesItsSections {
+                        SectionTitle(text: store.l.shopSection(group.section))
+                            .padding(.top, 4)
+                    }
                     ForEach(group.entries, id: \.self) { entry in
                         switch entry {
                         case .item(let kind):
@@ -68,10 +77,10 @@ private struct ShopItemCard: View {
 
     var body: some View {
         let l = store.l
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .top, spacing: 10) {
                 ItemIconView(kind: kind, size: 30)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     HStack(spacing: 6) {
                         Text(l.itemName(kind)).font(.callout.weight(.semibold))
                         let owned = store.itemCount(kind)
@@ -91,6 +100,7 @@ private struct ShopItemCard: View {
                     }
                     Text(l.itemDescription(kind, rareCandyXP: store.rareCandyXP))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineSpacing(Design.productLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
                     if kind == .shinyCharm, store.itemCount(kind) == 0 {
                         let odds = store.shinyCharmOdds
@@ -104,8 +114,7 @@ private struct ShopItemCard: View {
             buyControls(l)
             ActionFailedNote(failed: $failed, text: l.actionFailed)
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
         .onChange(of: store.maxBuyCount(kind)) { _, _ in
             quantity = selectedQuantity
         }
@@ -135,7 +144,7 @@ private struct ShopItemCard: View {
                 Spacer()
                 if store.canBuy(kind) {
                     Button(l.buy) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 } else {
                     ShopMissing(store: store, total: price)
                 }
@@ -171,13 +180,13 @@ private struct EggCard: View {
 
     var body: some View {
         let l = store.l
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .top, spacing: 10) {
                 // 크롭+정사각 보정한 알. 레이아웃은 30(다른 아이템 아이콘과 정렬 일치)으로 두되 알 자체는 26으로
                 // 살짝 작게 — 프레임에 여백이 생겨 꽉 찬 "뚱뚱" 느낌이 줄고 크기도 약간 작아진다.
                 SpriteView(speciesID: nil, size: 26, egg: EggKind(tier: tier))
                     .frame(width: 30, height: 30)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     HStack(spacing: 6) {
                         Text(l.eggName(tier)).font(.callout.weight(.semibold))
                         if let tier {
@@ -201,9 +210,11 @@ private struct EggCard: View {
                     }
                     Text(l.eggDescription(tier))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineSpacing(Design.productLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
                     Text(l.eggGoesToBag)
                         .font(.caption2).foregroundStyle(.tertiary)
+                        .lineSpacing(Design.productLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
@@ -213,8 +224,7 @@ private struct EggCard: View {
             buyControls(l)
             ActionFailedNote(failed: $failed, text: l.actionFailed)
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
         .onChange(of: store.maxEggBuyCount(tier)) { _, _ in quantity = selectedQuantity }
     }
 
@@ -234,7 +244,7 @@ private struct EggCard: View {
                 Spacer()
                 if store.canBuyEgg(tier) {
                     Button(l.buy) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 } else {
                     ShopMissing(store: store, total: price)
                 }
@@ -318,5 +328,23 @@ private struct ShopConfirmation: View {
             Text(toBag ? "\(l.eggsGoToBag(quantity)) \(left)" : left)
                 .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
         }
+    }
+}
+
+/// A product's card, the same in the Shop and in the Bag (#183): a little more air than the app's other cards, with the
+/// same text sizes, so a card stays compact.
+extension Design {
+    static let productCardPadding: CGFloat = 14
+    /// Between a card's blocks: its name and description, odds, controls.
+    static let productCardSpacing: CGFloat = 10
+    /// Between the name line and the lines under it.
+    static let productTextSpacing: CGFloat = 3
+    /// Inside a description that wraps.
+    static let productLineSpacing: CGFloat = 1.5
+}
+
+extension View {
+    func productCard() -> some View {
+        padding(Design.productCardPadding).designSurface(cornerRadius: Design.cornerRadius)
     }
 }

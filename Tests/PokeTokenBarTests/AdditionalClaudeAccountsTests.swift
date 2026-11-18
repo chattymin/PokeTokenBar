@@ -2012,3 +2012,19 @@ final class FiveHourNotStartedTests: XCTestCase {
         XCTAssertFalse(try window(#"{"resets_at":null}"#).hasNotStarted, "no value, no row")
     }
 }
+
+/// The latest prompt before a turn, found by halves for every turn of the month (#182), is the one a scan finds.
+final class ClaudePromptSearchTests: XCTestCase {
+    func testTheSearchByHalvesFindsWhatAScanFinds() {
+        var random = SystemRandomNumberGenerator()
+        for _ in 0..<300 {
+            let times = (0..<Int.random(in: 0...12, using: &random))
+                .map { _ in Date(timeIntervalSince1970: Double(Int.random(in: 0...40, using: &random))) }.sorted()
+            for probe in -1...41 {
+                let date = Date(timeIntervalSince1970: Double(probe))
+                XCTAssertEqual(ClaudeAccountUsageAttribution.lastPrompt(in: times, atOrBefore: date),
+                               times.last { $0 <= date }, "\(times) at \(probe)")
+            }
+        }
+    }
+}

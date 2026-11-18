@@ -10,15 +10,16 @@ struct DungeonEggCard: View {
     var body: some View {
         let l = store.l
         let name = DungeonEggTitle.text(egg.baseID, l: l, language: store.language, secret: egg.isSecret == true)
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .center, spacing: 10) {
                 SpriteView(speciesID: nil, size: 30, egg: egg.eggKind)
-                VStack(alignment: .leading, spacing: 3) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     DungeonEggTitle(speciesID: egg.baseID, l: l, language: store.language, secret: egg.isSecret == true)
                         .font(.callout.weight(.semibold)).lineLimit(1)
                     if egg.isShiny { Badge("✦ " + l.dungeonEggShiny.uppercased(), tint: .orange, style: .tinted) }
                     if store.hasActive {
                         Text(l.eggReleaseNote).font(.caption2).foregroundStyle(.tertiary)
+                            .lineSpacing(Design.productLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -31,8 +32,7 @@ struct DungeonEggCard: View {
                 store.useDungeonEgg(egg.id)
             }
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
     }
 }
 
@@ -79,7 +79,7 @@ struct DungeonItemControls: View {
                 } else {
                     Text(store.effectHint(for: kind)).font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
-                    Button(l.useItem) { nav.capsule = kind }.buttonStyle(.pill())
+                    Button(l.useItem) { nav.capsule = kind }.buttonStyle(.pill(prominent: true))
                 }
             case .explorerChest:
                 Text(store.effectHint(for: kind)).font(.caption2).foregroundStyle(.tertiary)
@@ -111,6 +111,7 @@ struct CapsuleScreen: View {
     @State private var lastRaised: Int?
     @State private var search = ""
     @State private var shinyOnly = false
+    @State private var favoritesOnly = false
     @State private var sort: CompanionStore.CapsuleSortOption = .strongest
     /// The Mint's last change on the Pokémon picked.
     @State private var mintChange: (from: PokemonNature?, to: PokemonNature)?
@@ -146,7 +147,8 @@ struct CapsuleScreen: View {
             } else {
                 Text(l.dungeonCapsulePick).font(.caption.weight(.semibold))
                 toolbar(l)
-                let shown = store.itemTargets(kind, query: search, shinyOnly: shinyOnly, sort: sort)
+                let shown = store.itemTargets(kind, query: search, shinyOnly: shinyOnly, favoritesOnly: favoritesOnly,
+                                              sort: sort)
                 if shown.isEmpty {
                     noResult(l)
                 } else {
@@ -199,6 +201,18 @@ struct CapsuleScreen: View {
             .buttonStyle(.plain)
             .hoverTip(l.filterShinyOnly)
             .accessibilityLabel(l.filterShinyOnly)
+            Button { favoritesOnly.toggle() } label: {
+                // Filled or not says it, not the pink alone.
+                Image(systemName: favoritesOnly ? "heart.fill" : "heart")
+                    .font(.system(size: 12, weight: favoritesOnly ? .bold : .regular))
+                    .foregroundStyle(favoritesOnly ? Color.pink : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .modifier(CapsuleFilterChip(active: favoritesOnly, tint: .pink))
+            }
+            .buttonStyle(.plain)
+            .hoverTip(l.filterFavoritesOnly)
+            .accessibilityLabel(l.filterFavoritesOnly)
+            .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
             Menu {
                 ForEach(CompanionStore.sortOptions(for: kind)) { option in
                     Button { sort = option } label: {
@@ -228,7 +242,7 @@ struct CapsuleScreen: View {
         VStack(spacing: 8) {
             Image(systemName: "magnifyingglass").font(.system(size: 24)).foregroundStyle(.tertiary)
             Text(l.noSearchResults).font(.callout.weight(.medium)).foregroundStyle(.secondary)
-            Button(l.clearFilters) { search = ""; shinyOnly = false }
+            Button(l.clearFilters) { search = ""; shinyOnly = false; favoritesOnly = false }
                 .buttonStyle(.bordered)
                 .controlSize(.small)
         }
@@ -242,6 +256,12 @@ struct CapsuleScreen: View {
             SpriteView(speciesID: entry.finalID, size: 40, shiny: entry.isShiny, form: entry.form, isSilhouette: false,
                        sameScale: true)
                 .opacity(maxed ? 0.35 : 1)
+                .overlay(alignment: .topTrailing) {
+                    if store.isFavorite(entry) {
+                        Image(systemName: "heart.fill").font(.system(size: 9)).foregroundStyle(Color.pink)
+                            .accessibilityLabel(store.l.favoriteLabel)
+                    }
+                }
             Text(kind == .mint ? entry.nature.map { $0.name(store.language) } ?? "?" : "\(total(entry))/186")
                 .font(.caption2).foregroundStyle(maxed ? .tertiary : .secondary).monospacedDigit().lineLimit(1)
                 .minimumScaleFactor(0.8)
@@ -366,19 +386,44 @@ struct DungeonMedalPanel: View {
                     } else {
                         Image(systemName: "crown.fill").font(.caption).frame(width: 20)
                     }
-                    Text(l.medalStepName(tier, step: step.generation)).font(.caption)
+                    Text(l.medalStepName(tier, step: step.generation)).font(.caption).lineLimit(1)
                     Spacer(minLength: 4)
-                    ForEach(Array(DungeonMedals.rewards(tier, step: step.generation).enumerated()), id: \.offset) { _, reward in
-                        HStack(spacing: 1) {
-                            ItemIconView(kind: reward.kind, size: 16)
-                            if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
-                        }
-                        .hoverTip(l.itemName(reward.kind))
-                    }
+                    MedalRewards(rewards: DungeonMedals.rewards(tier, step: step.generation), l: l)
                     Image(systemName: step.isDone ? "checkmark.circle.fill" : step.isReady ? "gift.fill" : "circle")
                         .font(.caption)
                         .foregroundStyle(step.isDone ? Design.actionColor : step.isReady ? Color.readableOrange : .secondary)
                 }
+            }
+        }
+    }
+}
+
+/// A medal step's rewards (#183): each icon at 24 pt with its name and count, or the icons alone, named on hover,
+/// where the names leave no room (two rewards in a long language).
+@MainActor
+struct MedalRewards: View {
+    let rewards: [(kind: ItemKind, count: Int)]
+    let l: L
+
+    var body: some View {
+        ViewThatFits(in: .horizontal) {
+            row(named: true)
+            row(named: false)
+        }
+    }
+
+    private func row(named: Bool) -> some View {
+        HStack(spacing: 6) {
+            ForEach(Array(rewards.enumerated()), id: \.offset) { _, reward in
+                HStack(spacing: 3) {
+                    ItemIconView(kind: reward.kind, size: 24)
+                    if named {
+                        Text(l.itemName(reward.kind)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                    }
+                    if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
+                }
+                .fixedSize()
+                .hoverTip(l.itemName(reward.kind))
             }
         }
     }
@@ -422,15 +467,9 @@ struct BattleFormsMedalPanel: View {
             Text(l.battleFormsWon(won, of: BattleForms.all.count)).font(.caption.weight(.semibold)).foregroundStyle(.secondary)
             ForEach(store.regionTiers(.battleFormsMedal), id: \.generation) { step in
                 HStack(spacing: 6) {
-                    Text(l.battleFormsMedalStep(step.generation)).font(.caption)
+                    Text(l.battleFormsMedalStep(step.generation)).font(.caption).lineLimit(1)
                     Spacer(minLength: 4)
-                    ForEach(Array(BattleFormsMedal.rewards(step: step.generation).enumerated()), id: \.offset) { _, reward in
-                        HStack(spacing: 1) {
-                            ItemIconView(kind: reward.kind, size: 16)
-                            if reward.count > 1 { Text("×\(reward.count)").font(.caption2).monospacedDigit() }
-                        }
-                        .hoverTip(l.itemName(reward.kind))
-                    }
+                    MedalRewards(rewards: BattleFormsMedal.rewards(step: step.generation), l: l)
                     Image(systemName: step.isDone ? "checkmark.circle.fill" : step.isReady ? "gift.fill" : "circle")
                         .font(.caption)
                         .foregroundStyle(step.isDone ? Design.actionColor : step.isReady ? Color.readableOrange : .secondary)

@@ -3,7 +3,8 @@ import XCTest
 
 private struct DexFamilyProvider: PokeProviding {
     func line(baseSpeciesID: Int) async throws -> EvoLine { throw URLError(.notConnectedToInternet) }
-    func baseSpeciesIndex() async throws -> [BaseSpecies] { [] }
+    /// Bulbasaur's line rare (capture rate 45), Pidgey's common.
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: 1, captureRate: 45), BaseSpecies(id: 16, captureRate: 255)] }
     func baseSpecies(id: Int) async throws -> BaseSpecies? { nil }
 }
 
@@ -12,7 +13,7 @@ private struct DexFamilyProvider: PokeProviding {
 @MainActor
 final class DexFamilyTests: XCTestCase {
     /// Graduated individuals, one per chain, in these forms.
-    private func store(_ chains: [(chain: [Int], form: PokemonForm?)]) throws -> CompanionStore {
+    private func store(_ chains: [(chain: [Int], form: PokemonForm?)], shiny: Set<Int> = []) throws -> CompanionStore {
         let suite = "DexFamily-\(UUID())"
         let defaults = try XCTUnwrap(UserDefaults(suiteName: suite))
         addTeardownBlock { defaults.removePersistentDomain(forName: suite) }
@@ -22,7 +23,8 @@ final class DexFamilyTests: XCTestCase {
         state.installBaselineSet = true
         state.dex = chains.enumerated().map { index, item in
             DexEntry(baseID: item.chain[0], finalID: item.chain.last!, chainOrder: item.chain, rarity: .common,
-                     caughtAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(index)), form: item.form)
+                     caughtAt: Date(timeIntervalSince1970: 1_790_000_000 + Double(index)), isShiny: shiny.contains(index),
+                     form: item.form)
         }
         try JSONEncoder().encode(state).write(to: file)
         return CompanionStore(provider: DexFamilyProvider(), fileURL: file, defaults: defaults)
@@ -70,6 +72,41 @@ final class DexFamilyTests: XCTestCase {
         let perrserker = store.dexFamily(speciesID: 863, form: nil)
         XCTAssertEqual(perrserker.form, galar)
         XCTAssertEqual(perrserker.nodes, [EvoLineItem(.species(52), .done), EvoLineItem(.species(863), .current)])
+    }
+
+    /// A page's family is drawn shiny only where each species was caught shiny, in the line's form (the owner,
+    /// 2026-11-17: a shiny Eevee's page showed every Eeveelution shiny).
+    func testTheFamilyIsShinyOnlyWhereCaughtShiny() throws {
+        let alola = PokemonForm("alola"), kanto = PokemonForm("normal")
+        // A shiny Eevee become Leafeon, a plain Vaporeon, a shiny Alolan Vulpix, a plain Kanto Ninetales.
+        let store = try store([([133, 470], nil), ([133, 134], nil), ([37], alola), ([37, 38], kanto)], shiny: [0, 2])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 133, form: nil)), [133, 470])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 134, form: nil)), [133])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 37, form: alola)), [37])
+        XCTAssertEqual(store.dexFamilyShinies(store.dexFamily(speciesID: 37, form: kanto)), [])
+    }
+
+    /// The page's line leaves the page's species out: its header shows it already (the owner, 2026-11-17).
+    func testThePagesLineLeavesItsOwnSpeciesOut() throws {
+        let store = try store([([133, 134], nil), ([1, 2, 3], nil)])
+        let eevee = PokemonDetailView.lineWithoutPage(store.dexFamily(speciesID: 133, form: nil).nodes)
+        XCTAssertEqual(eevee.count, 1)
+        guard case .branch(let items)? = eevee.first?.content else { return XCTFail("\(eevee)") }
+        XCTAssertEqual(items.count, 8)
+        XCTAssertEqual(PokemonDetailView.lineWithoutPage(store.dexFamily(speciesID: 2, form: nil).nodes).map(\.content),
+                       [.species(1), .species(3)])
+    }
+
+    /// A species never caught has a rarity too, its line's, for the Pokédex's rarity filter (#183).
+    @MainActor
+    func testEverySpeciesTakesItsLinesRarity() async throws {
+        let store = try store([([1, 2], nil)])
+        await store.loadHatchIndex()
+        let rarities = try XCTUnwrap(store.speciesRarities)
+        XCTAssertEqual(rarities[1], BaseSpecies(id: 1, captureRate: 45).rarity)
+        XCTAssertEqual(rarities[3], rarities[1], "Venusaur, never caught, rates as its line")
+        XCTAssertEqual(rarities[18], BaseSpecies(id: 16, captureRate: 255).rarity, "Pidgeot as Pidgey's line")
+        XCTAssertNotEqual(rarities[18], rarities[3])
     }
 
     func testASpeciesThatNeitherEvolvesNorEvolvesFromAnythingHasNoFamily() throws {

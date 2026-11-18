@@ -121,8 +121,9 @@ enum PokeMinersForm {
     }
 }
 
-/// A Costume Egg of the Bag: its content fixed when earned, the first stage of one of its month's costumes
-/// (`CompanionStore.earnCostumeEggs`); shiny or not is drawn at the hatch, as any egg's.
+/// A Costume Egg: in the Bag, only its month; what it holds (the first stage of one of the month's costumes) is drawn
+/// when it is opened (`CompanionStore.useCostumeEgg`, the owner 2026-11-18), and kept while it incubates. Shiny or not
+/// is drawn at the hatch, as any egg's.
 struct CostumeEgg: Codable, Sendable, Equatable, Identifiable {
     var id: String
     var code: String
@@ -131,6 +132,13 @@ struct CostumeEgg: Codable, Sendable, Equatable, Identifiable {
     var month: Int
 
     var entry: CostumeEntry? { CostumeCatalog.entry(code: code, speciesID: speciesID, form: form) }
+}
+
+extension CostumeEgg {
+    /// An egg just earned: its month only, its content drawn when opened.
+    init(month: Int, id: String = UUID().uuidString) {
+        self.init(id: id, code: "", speciesID: 0, form: nil, month: month)
+    }
 }
 
 /// The costumed collection's two medals (the owner, 2026-11-13: "OK pour ta proposition"): a step at 25, 50, 100

@@ -60,15 +60,15 @@ final class SpriteSameScaleTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: file) }
         let store = CompanionStore(provider: SameScaleProvider(), fileURL: file)
         let caught = PopoverNavigation()
-        caught.dexScope = .caught   // the caught species page by page
+        caught.dexScope = .caught   // laid out by region like the whole Pokédex (#183)
         let host = NSHostingView(rootView: CollectionView(store: store, navigation: caught)
             .frame(width: PopoverMetrics.contentWidth, height: 400).background(Color.white))
         host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.contentWidth, height: 400)
         let heights = try spriteHeights(host)
         XCTAssertEqual(heights.count, 2, "two green sprites: \(heights)")
-        // The grid's sprites are 50 pt.
-        XCTAssertEqual(heights.last ?? 0, 50, accuracy: 1.5, "the Charizard fills its 50 pt sprite box")
-        XCTAssertEqual(heights.first ?? 0, 57 * 50 / SpriteFit.sameScaleReference, accuracy: 1.5,
+        // The same cells as the whole Pokédex: 42 pt sprites.
+        XCTAssertEqual(heights.max() ?? 0, 42, accuracy: 1.5, "the Charizard fills its 42 pt sprite box")
+        XCTAssertEqual(heights.min() ?? 0, 57 * 42 / SpriteFit.sameScaleReference, accuracy: 1.5,
                        "the Charmander keeps its scale")
     }
 

@@ -176,43 +176,43 @@ final class DexBackNavigationTests: XCTestCase {
 
     // MARK: Pokédex grid
 
-    func testBackFromDetailReturnsToThePageOfThatSpecies() async throws {
+    /// "Obtenus" is laid out by region like the other scopes (#183): its cells read their number, the page's species
+    /// comes back in view after Back.
+    func testBackFromDetailReturnsToTheGridWithThatSpecies() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
-        navigation.dexScope = .caught   // the caught species page by page
+        navigation.dexScope = .caught
         navigation.tab = .collection
         let root = host(store, navigation)
-        try await waitForText("Mon5", in: root)
+        try await waitForText("005", in: root)
 
         try await openPageTwoSpeciesAndGoBack(store, navigation, root)
 
-        try await waitForText("Mon20", in: root)
-        // Only the page comes back: the species is not selected, so the footer does not name it.
-        let footer = try words(in: root).filter { $0.box.midY < 0.05 }   // y-up: the bottom strip
-        XCTAssertFalse(footer.contains { $0.reads("Mon18", exactly: false) }, "Seen: \(footer.map(\.candidates))")
+        try await waitForText("018", in: root)
     }
 
-    func testReturnPageIsUsedOnlyOnce() async throws {
+    /// A segment switch after Back shows the grid from its top.
+    func testASegmentSwitchShowsTheGridFromItsTop() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
-        navigation.dexScope = .caught   // the caught species page by page
+        navigation.dexScope = .caught
         navigation.tab = .collection
         let root = host(store, navigation)
         try await openPageTwoSpeciesAndGoBack(store, navigation, root)
-        try await waitForText("Mon20", in: root)
+        try await waitForText("018", in: root)
 
         navigation.showingCollectionLog = true
         try await Task.sleep(for: .milliseconds(100))
         navigation.showingCollectionLog = false
 
-        try await waitForText("Mon5", in: root)
+        try await waitForText("001", in: root)
     }
 
-    /// Back to the log must not leave the grid's return page behind for the next segment switch.
-    func testBackToTheLogLeavesTheGridOnItsFirstPage() async throws {
+    /// Back to the log must not leave the grid's return anchor behind for the next segment switch.
+    func testBackToTheLogLeavesTheGridOnItsTop() async throws {
         let store = try makeStore()
         let navigation = PopoverNavigation()
-        navigation.dexScope = .caught   // the caught species page by page
+        navigation.dexScope = .caught
         navigation.tab = .collection
         navigation.showingCollectionLog = true
         let root = host(store, navigation)
@@ -221,7 +221,7 @@ final class DexBackNavigationTests: XCTestCase {
 
         navigation.showingCollectionLog = false
 
-        try await waitForText("Mon5", in: root)
+        try await waitForText("001", in: root)
     }
 
     // MARK: Evolution family
@@ -265,7 +265,7 @@ final class DexBackNavigationTests: XCTestCase {
         try await goBack(to: "1")
         try await goBack(to: "2")
         try await goBack(to: nil)
-        try await waitForText("Mon5", in: root)
+        try await waitForText("005", in: root)
         XCTAssertTrue(navigation.dexDetailHistory.isEmpty)
     }
 

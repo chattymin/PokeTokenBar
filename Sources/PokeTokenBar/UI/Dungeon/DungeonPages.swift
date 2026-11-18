@@ -11,6 +11,7 @@ struct MyTeamScreen: View {
     @State private var focus: String?
     @State private var editingSlot: Int?
     @State private var search = ""
+    @State private var favoritesOnly = false
     @State private var loaded = false
 
     static let size = 6
@@ -59,11 +60,24 @@ struct MyTeamScreen: View {
                 }
                 .frame(maxHeight: .infinity, alignment: .top)
             } else {
-                TextField(l.dexSearchPlaceholder, text: $search)
-                    .textFieldStyle(.roundedBorder).controlSize(.small)
+                HStack(spacing: 4) {
+                    TextField(l.dexSearchPlaceholder, text: $search)
+                        .textFieldStyle(.roundedBorder).controlSize(.small)
+                    Button { favoritesOnly.toggle() } label: {
+                        // Filled or not says it, not the pink alone.
+                        Image(systemName: favoritesOnly ? "heart.fill" : "heart")
+                            .font(.system(size: 11, weight: favoritesOnly ? .bold : .regular))
+                            .foregroundStyle(favoritesOnly ? Color.pink : Color.secondary)
+                            .modifier(CapsuleFilterChip(active: favoritesOnly, tint: .pink))
+                    }
+                    .buttonStyle(.plain)
+                    .hoverTip(l.filterFavoritesOnly)
+                    .accessibilityLabel(l.filterFavoritesOnly)
+                    .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
+                }
                 ScrollView {
                     TeamCandidateList(store: store, dungeon: nil, faced: [], rules: [], size: Self.size, query: search,
-                                      team: $team, focus: $focus)
+                                      filter: favoritesOnly ? .favorite : nil, team: $team, focus: $focus)
                         .reservesScrollerLane()
                 }
                 .frame(minHeight: 46)
@@ -439,7 +453,7 @@ struct TypeChartScreen: View {
             GridRow {
                 Color.clear.frame(width: Self.label, height: 28)
                 ForEach(types, id: \.self) { defending in
-                    Text(short(defending, l)).font(.system(size: 7, weight: .bold))
+                    Text(short(defending, l)).font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(-90)).fixedSize()
                         .frame(width: Self.cell, height: 28)
                         .background(defending.color.opacity(selected == defending ? 0.6 : 0.3))
@@ -448,7 +462,7 @@ struct TypeChartScreen: View {
             }
             ForEach(types, id: \.self) { attacking in
                 GridRow {
-                    Text(short(attacking, l)).font(.system(size: 8, weight: .bold))
+                    Text(short(attacking, l)).font(.system(size: 9, weight: .bold))
                         .frame(width: Self.label, height: Self.cell)
                         .background(attacking.color.opacity(selected == attacking ? 0.6 : 0.3))
                         .onTapGesture { selected = selected == attacking ? nil : attacking }
@@ -590,7 +604,9 @@ struct RunRow: View {
                     if run.caught { Image(systemName: "checkmark.seal.fill").font(.caption2).foregroundStyle(.secondary) }
                 }
                 if showsDungeon {
-                    (result + Text(" · ") + Text(when).foregroundStyle(.secondary)).font(.caption2).lineLimit(1)
+                    // On two lines rather than cut: "17 nov. à…" told nothing (#183).
+                    (result + Text(" · ") + Text(when).foregroundStyle(.secondary)).font(.caption2).lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 } else {
                     Text(when).font(.caption2).foregroundStyle(.secondary).lineLimit(1)
                 }

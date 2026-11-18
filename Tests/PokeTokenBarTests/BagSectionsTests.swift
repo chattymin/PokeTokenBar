@@ -14,28 +14,31 @@ final class BagSectionsTests: XCTestCase {
             XCTAssertEqual(CompanionStore.bagSection(of: item), .dungeons, "\(item)")
         }
         XCTAssertEqual(CompanionStore.bagSection(of: .rareCandy), .raising)
+        XCTAssertEqual(CompanionStore.bagSection(of: .mint), .graduated)
         XCTAssertEqual(CompanionStore.bagSection(of: .shinyCharm), .keptForGood)
     }
 
     /// The Legendary Egg and Type: Null's are items to use, no longer filed with the artifacts; badges and artifacts
     /// keep their tabs.
     func testEggsAreItemsNotArtifacts() {
-        XCTAssertEqual(BagView.Section.of(.legendaryEgg), .items)
-        XCTAssertEqual(BagView.Section.of(.typeNullEgg), .items)
+        XCTAssertEqual(BagView.Section.of(.legendaryEgg), .raising)
+        XCTAssertEqual(BagView.Section.of(.typeNullEgg), .raising)
         XCTAssertEqual(BagView.Section.of(.boulderBadge), .badges)
         XCTAssertEqual(BagView.Section.of(.rainbowWing), .artifacts)
     }
 
-    /// The Rare Candies first (the owner, 2026-11-09 evening), then the Shop's sections; among the eggs its three by
-    /// rarity, the Legendary Egg under the Rare one, the other eggs, the stones last.
-    func testTheItemsTabFollowsTheShop() {
-        let held: [(kind: ItemKind, count: Int)] = [(.fireStone, 1), (.greatBall, 2), (.legendaryEgg, 1), (.rareCandy, 3),
-                                                     (.fossilEgg, 1), (.rareEgg, 2), (.pokemonEgg, 1), (.oranBerry, 4)]
+    /// The raising tab: the Rare Candies first (the owner, 2026-11-09 evening), then the eggs, the Mint for the graduated
+    /// Pokémon, what is kept for good; among the eggs the Shop's three by rarity, the Legendary Egg under the Rare one,
+    /// the other eggs, the stones last.
+    func testTheRaisingTabFollowsTheShop() {
+        let held: [(kind: ItemKind, count: Int)] = [(.fireStone, 1), (.shinyCharm, 1), (.legendaryEgg, 1), (.rareCandy, 3),
+                                                     (.fossilEgg, 1), (.rareEgg, 2), (.mint, 2), (.pokemonEgg, 1)]
         let sections = BagView.itemSections(held, dungeonEggs: false)
-        XCTAssertEqual(sections.map(\.section), [.raising, .eggs, .dungeons])
+        XCTAssertEqual(sections.map(\.section), [.raising, .eggs, .graduated, .keptForGood])
         XCTAssertEqual(sections[0].items.map(\.kind), [.rareCandy])
         XCTAssertEqual(sections[1].items.map(\.kind), [.pokemonEgg, .rareEgg, .legendaryEgg, .fossilEgg, .fireStone])
-        XCTAssertEqual(sections[2].items.map(\.kind), [.greatBall, .oranBerry])
+        XCTAssertEqual(sections[2].items.map(\.kind), [.mint])
+        XCTAssertEqual(sections[3].items.map(\.kind), [.shinyCharm])
         XCTAssertEqual(BagView.itemSections([(.rareCandy, 1)], dungeonEggs: true).map(\.section), [.raising, .eggs],
                        "the eggs' section for the dungeon eggs alone")
     }

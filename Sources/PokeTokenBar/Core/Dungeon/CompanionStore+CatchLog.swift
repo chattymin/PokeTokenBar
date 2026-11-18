@@ -40,12 +40,14 @@ extension CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        favoritesOnly: Bool = false,
         evolutionFamily: Bool = false,
         sort: CatchLogSortOption = .recentFirst
     ) -> [CatchLogItem] {
-        let entries = filteredDexEntries(query: query, rarity: rarity, shinyOnly: shinyOnly,
+        let entries = filteredDexEntries(query: query, rarity: rarity, shinyOnly: shinyOnly, favoritesOnly: favoritesOnly,
                                          evolutionFamily: evolutionFamily, sort: sort)
-        var forms = shinyOnly ? [] : battleFormCatches
+        // A battle form won is no individual: neither shiny nor liked.
+        var forms = shinyOnly || favoritesOnly ? [] : battleFormCatches
         guard !forms.isEmpty else { return entries.map(CatchLogItem.entry) }
         let records = dexEntries
         // Once per form: the sort compares them often.

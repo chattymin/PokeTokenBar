@@ -39,6 +39,25 @@ final class FormAchievementsTests: XCTestCase {
         return goal.forms.map { graduated(chain, $0.rawValue) }
     }
 
+    /// [Regression] The tab bar's achievement count is kept until the state changes (#183: it read the whole Pokédex
+    /// for each form goal at each opening of the popover). A graduation in the last form missing counts at once.
+    func testTheAchievementCountFollowsAGraduation() async throws {
+        guard case .forms(let goal) = ItemKind.rotomCatalog.unlock, let last = goal.forms.last else { return XCTFail() }
+        var mon = MonState(baseID: 479, pathIDs: [479], stageIndex: 0, usedAtStage: 0, rarity: .common, totalForms: 1)
+        mon.form = last
+        let s = try store(dex: goal.forms.dropLast().map { graduated([479], $0.rawValue) }, active: mon)
+        XCTAssertFalse(s.isUnlocked(.rotomCatalog))
+        let before = s.achievementTally(in: .forms).ready
+        s.update(todayTokensByProvider: ["test": 0], todayDate: "2026-10-27", monthTotal: 0, burnTier: .idle,
+                 limitWarning: false, hasUsageData: true)
+        for _ in 0..<50 where s.currentLine == nil { await Task.yield() }
+        s.applyUsage(s.stageThreshold(for: mon))
+        XCTAssertNil(s.state.active, "graduated")
+        XCTAssertTrue(s.isUnlocked(.rotomCatalog))
+        XCTAssertEqual(s.achievementTally(in: .forms).ready, before + 1, "counted at once, not the count kept from before")
+        XCTAssertEqual(s.unclaimedAchievementsCount, s.achievementTally().ready)
+    }
+
     /// Each achievement counts its species' forms, Minior's seven cores without its Meteor shell.
     func testEachAchievementAsksForEveryFormOfItsSpecies() {
         let expected: [(ItemKind, Int, Int)] = [(.rotomCatalog, 479, 6), (.cometShard, 774, 7), (.redNectar, 741, 4),

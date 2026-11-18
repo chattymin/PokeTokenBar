@@ -8,13 +8,22 @@ import UserNotifications
 @Observable
 final class CompanionStore {
     private(set) var state = CompanionState() {
-        didSet { dexSpeciesCache = [:]; goalsBySpecies = nil; oakOddsCache = [:]; formSuspenseCache = nil; dungeonCandidatesCache = nil }
+        didSet {
+            dexSpeciesCache = [:]; goalsBySpecies = nil; oakOddsCache = [:]; formSuspenseCache = nil; dungeonCandidatesCache = nil
+            graduatedFormsCache = nil; achievementTalliesCache = nil
+        }
     }
     private(set) var displayState: CompanionStateKind = .egg
     private(set) var currentLine: EvoLine? { didSet { dexSpeciesCache = [:] } }
     /// `collectedDexSpecies` by `groupForms`, until the state or the line changes: a form species' page read it some
     /// 25 times per draw (`formSpecies`, `dexCover`, the picker), each folding and sorting the whole Pokédex.
     @ObservationIgnored private var dexSpeciesCache: [Bool: [DexSpecies]] = [:]
+    /// The forms the Pokédex holds graduated, until the state changes: each of the achievements' form goals read the
+    /// whole Pokédex again, and the tab bar's count asked them at each opening of the popover (#183, the owner's "ça
+    /// lag un peu quand on l'affiche").
+    @ObservationIgnored private var graduatedFormsCache: GraduatedForms?
+    /// `achievementTallies()`, until the state changes.
+    @ObservationIgnored private var achievementTalliesCache: (all: AchievementTally, byGroup: [CollectorGroup: AchievementTally])?
     /// `goals(counting:)` for every species, until the state changes.
     @ObservationIgnored private var goalsBySpecies: [Int: [ActiveGoal]]?
     /// `dungeonCandidates`, made once per state: the team screen asked it for every row and every member of each
@@ -1022,7 +1031,7 @@ final class CompanionStore {
                 }
             } else if !isClaimed(kind), !isUnlocked(kind, registered: registered) {
                 if case .forms(let goal)? = kind.unlock, new.contains(goal.speciesID) {
-                    let have = state.collectedForms(speciesID: goal.speciesID, graduatedOnly: true)
+                    let have = state.graduatedForms(speciesID: goal.speciesID, graduatedFormsIndex)
                         .intersection(goal.forms).count
                     goals.append(ActiveGoal(item: kind, generation: nil, gain: 1, count: have, needed: goal.forms.count))
                     continue
@@ -1392,6 +1401,20 @@ final class CompanionStore {
         return (nodes.count > 1 ? nodes : [], lineForm)
     }
 
+    /// The species of a Pokédex page's family drawn shiny when the page shows its shiny look: each one caught shiny in
+    /// the line's form, never the whole family because the page's species was (the owner, 2026-11-17: a shiny Eevee's
+    /// page showed every Eeveelution shiny, none of them caught shiny).
+    func dexFamilyShinies(_ family: (nodes: [EvoLineItem], form: PokemonForm?)) -> Set<Int> {
+        let ids = family.nodes.flatMap { node -> [Int] in
+            switch node.content {
+            case .species(let id): [id]
+            case .branch(let items): items.map(\.speciesID)
+            case .mystery: []
+            }
+        }
+        return Set(ids.filter { state.ownsShinySpecies($0, form: family.form) })
+    }
+
     /// What a Pokédex species shows first, in its grid cell and when its page opens. Among the forms of a species
     /// that has them: a shiny form before a normal one (the representative's first), then the representative, then
     /// the first collected. A species without forms is itself. Either way, a species caught shiny shows shiny.
@@ -1606,11 +1629,33 @@ final class CompanionStore {
         return familyIDs
     }
 
+    // MARK: Favorites
+
+    /// A species in the graduated Pokédex can be liked, a Charmander its Charizard went through too (the owner,
+    /// 2026-11-18: by species).
+    func canFavorite(speciesID: Int) -> Bool { graduatedSpeciesIDs.contains(speciesID) }
+
+    func isFavorite(speciesID: Int) -> Bool { state.favoriteSpecies.contains(speciesID) }
+
+    /// An individual shows under the ♥ filter when the species it graduated as is liked.
+    func isFavorite(_ entry: DexEntry) -> Bool { !entry.isReleased && state.favoriteSpecies.contains(entry.finalID) }
+
+    /// Likes a species, or unlikes it.
+    func toggleFavorite(speciesID: Int) {
+        guard canFavorite(speciesID: speciesID) || isFavorite(speciesID: speciesID) else { return }
+        if state.favoriteSpecies.contains(speciesID) { state.favoriteSpecies.remove(speciesID) } else { state.favoriteSpecies.insert(speciesID) }
+        save()
+    }
+
+    /// The species liked, and only those: the Pokédex's ♥ filter (the owner, 2026-11-18: no evolution along).
+    var favoriteSpeciesIDs: Set<Int> { state.favoriteSpecies }
+
     /// Filters and sorts DexSpecies for the Pokédex grid.
     func filteredDexSpecies(
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        favoritesOnly: Bool = false,
         evolutionFamily: Bool = false,
         sort: DexSortOption = .numberAsc
     ) -> [DexSpecies] {
@@ -1620,6 +1665,10 @@ final class CompanionStore {
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
+        }
+        if favoritesOnly {
+            let liked = favoriteSpeciesIDs
+            result = result.filter { liked.contains($0.id) }
         }
         if let matcher = DexSearchMatcher(query) {
             if evolutionFamily {
@@ -1671,6 +1720,7 @@ final class CompanionStore {
         query: String = "",
         rarity: Rarity? = nil,
         shinyOnly: Bool = false,
+        favoritesOnly: Bool = false,
         evolutionFamily: Bool = false,
         sort: CatchLogSortOption = .recentFirst
     ) -> [DexEntry] {
@@ -1680,6 +1730,9 @@ final class CompanionStore {
         }
         if shinyOnly {
             result = result.filter { $0.isShiny }
+        }
+        if favoritesOnly {
+            result = result.filter { isFavorite($0) }
         }
         if let matcher = DexSearchMatcher(query) {
             if evolutionFamily {
@@ -2033,6 +2086,8 @@ final class CompanionStore {
         reconcileActiveProfileGrowth()
         // Tokens' growth waits with the usage writes; a Rare Candy's is written at once.
         guard let line = currentLine else { return isTokenUsage ? saveUsage() : save() }
+        // An evolution or a graduation is written at once; tokens' growth alone waits with the usage writes.
+        var staged = false
         var guardCount = 0
         while state.active != nil, guardCount < 50 {
             guardCount += 1
@@ -2048,7 +2103,7 @@ final class CompanionStore {
             }
             // A species none of whose evolutions this form can take is final for it (a Kanto Farfetch'd).
             if Self.openChildren(node, form: a.form).isEmpty {
-                graduate(); break
+                graduate(); staged = true; break
             } else {
                 let nextIndex = a.stageIndex + 1
                 let next: EvoNode
@@ -2064,8 +2119,9 @@ final class CompanionStore {
                     state.active!.totalForms = repaired.count
                     AppLog.write("evolve: repaired invalid planned path for base \(a.baseID)")
                 } else {
-                    graduate(); break
+                    graduate(); staged = true; break
                 }
+                staged = true
                 let wasMystery = activeNews?.mystery != nil
                 // Evolving into a legendary (Solgaleo) wins its Memories; into Silvally, the forms they unlock.
                 let unlockedForms = itemFormSnapshot()
@@ -2092,7 +2148,9 @@ final class CompanionStore {
             }
         }
         reconcileActiveProfileGrowth()
-        save()
+        // Every live read used to write the whole save here, its line loaded: 1.5 MB every few seconds while tokens
+        // flowed (#182).
+        if isTokenUsage, !staged { saveUsage() } else { save() }
     }
 
     /// What the menu bar tells of the next stage, or of the hatch: nothing while a form is a mystery (`hidesGrowthAmounts`).
@@ -2514,23 +2572,48 @@ final class CompanionStore {
     var shopEntries: [ShopEntry] { shopSections.flatMap(\.entries) }
 
     /// The Shop's sections (the owner, 2026-11-05: one price order mixed eggs, balls, candies and charms): the eggs, what
-    /// the Pokémon raised uses, the dungeons' balls, then what is kept for good, each cheapest first (`purchasableItems`'s
-    /// order, the eggs' tiers in theirs; a discount lowers a whole section alike). Empty ones go.
-    enum ShopSection: CaseIterable, Sendable { case eggs, raising, dungeons, keptForGood }
+    /// the Pokémon raised uses, what the graduated ones use (the Mint, #183), the dungeons' balls, then what is kept for
+    /// good, each cheapest first (`purchasableItems`'s order, the eggs' tiers in theirs; a discount lowers a whole section
+    /// alike). Empty ones go.
+    enum ShopSection: CaseIterable, Sendable {
+        case eggs, raising, graduated, dungeons, keptForGood
+
+        /// The Shop's tab it is shown in (#183): the Pokémon raised, the graduated ones and what is kept for good share
+        /// the raising tab.
+        var tab: ShopTab {
+            switch self {
+            case .eggs: .eggs
+            case .raising, .graduated, .keptForGood: .raising
+            case .dungeons: .dungeons
+            }
+        }
+    }
+
+    /// The Shop's tabs under Prof. Oak's card (#183): one section at a time instead of all of them stacked.
+    enum ShopTab: CaseIterable, Sendable {
+        case eggs, raising, dungeons
+
+        /// Its sections in the Shop's order.
+        var sections: [ShopSection] { ShopSection.allCases.filter { $0.tab == self } }
+        /// A tab of several sections names each one; the others' name is the tab's.
+        var namesItsSections: Bool { sections.count > 1 }
+    }
 
     /// Where an item of the Bag's Items tab stands, by the Shop's sections (the owner, 2026-11-09: the balls and eggs
     /// were mixed): every egg first (the Legendary Egg and Type: Null's included, which the Bag used to file with the
     /// artifacts) and the evolution stones with them, which trade the Pokémon raised for an egg too (the owner); the
-    /// dungeons' items, what is kept for good, the rest for the Pokémon raised.
+    /// dungeons' items, what is kept for good, the rest for the Pokémon raised. The Mint, found in the dungeons' chests
+    /// but used on a graduated Pokémon, has its own section beside the raising (#183).
     nonisolated static func bagSection(of kind: ItemKind) -> ShopSection {
         if kind.isEggItem || kind.rawValue.hasSuffix("Egg") || kind.stoneType != nil { return .eggs }
+        if kind == .mint { return .graduated }
         if kind.isDungeonItem { return .dungeons }
         return kind.isPassive ? .keptForGood : .raising
     }
 
     /// The Bag's sections, top down: the Rare Candies first, above the eggs (the owner, 2026-11-09 evening: "les
     /// bonbons tout en haut"), then the Shop's order. The Shop keeps its eggs first.
-    nonisolated static let bagSectionOrder: [ShopSection] = [.raising, .eggs, .dungeons, .keptForGood]
+    nonisolated static let bagSectionOrder: [ShopSection] = [.raising, .eggs, .graduated, .dungeons, .keptForGood]
 
     /// An item's place in the Bag and a recap: its section, then among the eggs the Shop's three by rarity with the
     /// Legendary Egg under the Rare one (the owner, 2026-11-09), the other eggs, the stones last; elsewhere the items'
@@ -2550,17 +2633,29 @@ final class CompanionStore {
         return ra.place < rb.place
     }
 
+    /// An item for sale stands in its Bag section, so the Shop and the Bag file the Mint alike.
     var shopSections: [(section: ShopSection, entries: [ShopEntry])] {
         func section(of entry: ShopEntry) -> ShopSection {
             guard case .item(let kind) = entry else { return .eggs }
-            if kind.isDungeonItem { return .dungeons }
-            return kind.isPassive ? .keptForGood : .raising
+            return Self.bagSection(of: kind)
         }
         let entries = purchasableItems.map { ShopEntry.item($0) } + FreshEgg.shopTiers.map { ShopEntry.egg($0) }
         return ShopSection.allCases.compactMap { kind in
             let inSection = entries.filter { section(of: $0) == kind }
             return inSection.isEmpty ? nil : (kind, inSection)
         }
+    }
+
+    /// The Shop's tabs with their sections (#183), empty ones left out.
+    var shopTabs: [(tab: ShopTab, sections: [(section: ShopSection, entries: [ShopEntry])])] {
+        // A plain loop, as `BagView.itemSections`: Xcode 27.2's compiler failed on closures returning such tuples.
+        let sections = shopSections
+        var tabs: [(tab: ShopTab, sections: [(section: ShopSection, entries: [ShopEntry])])] = []
+        for tab in ShopTab.allCases {
+            let inTab = sections.filter { $0.section.tab == tab }
+            if !inTab.isEmpty { tabs.append((tab: tab, sections: inTab)) }
+        }
+        return tabs
     }
 
     /// 구매 가능 — 잔액이 그 아이템 가격 이상(상점 미판매면 false). 활성/알 무관(재고는 미리 쌓아둘 수 있음).
@@ -2698,6 +2793,8 @@ final class CompanionStore {
     var currentDate: Date { clock() }
     func drawSeed() -> UInt64 { rng.next() }
     func persist() { save() }
+    /// A usage update's write, at most once per `usageSaveGap` (`saveUsage`).
+    func persistUsage() { saveUsage() }
 
     // MARK: Collector items (unlocked by the Pokédex)
 
@@ -2887,11 +2984,14 @@ final class CompanionStore {
     /// Species graduated in a Rock-type form: their usual one, or one of their forms (Hisuian Arcanine). A species with
     /// forms counts by the forms it graduated in only: a Galarian Corsola (Ghost) counted as Rock, Corsola's usual type.
     var rockSpeciesGraduated: Set<Int> {
-        Set(graduatedSpeciesIDs.filter { id in
+        // The Pokédex's forms read once: `collectedForms(graduatedOnly:)` read it again for each species, up to 240 ms
+        // each time the popover drew its tabs (#182).
+        let graduated = GraduatedForms(state.dex)
+        return Set(graduatedSpeciesIDs.filter { id in
             guard PokemonForm.hasForms(speciesID: id) else {
                 return PokemonTypeData.types(forSpeciesID: id, form: nil).contains(.rock)
             }
-            return state.collectedForms(speciesID: id, graduatedOnly: true).contains {
+            return state.graduatedForms(speciesID: id, graduated).contains {
                 PokemonTypeData.types(forSpeciesID: id, form: $0).contains(.rock)
             }
         })
@@ -2903,9 +3003,9 @@ final class CompanionStore {
 
     /// Whether this item's achievement goal is met, counting graduated Pokémon only, in the save or in `s`. Items
     /// without a Pokédex condition are always unlocked. For a regional achievement: one of its regional tiers is complete.
-    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil, in s: CompanionState? = nil,
+    func isUnlocked(_ kind: ItemKind, registered: Set<Int>? = nil, in given: CompanionState? = nil,
                     graduatedOnly: Bool = true, battleForms: Bool = true) -> Bool {
-        let s = s ?? state
+        let s = given ?? state
         switch kind.unlock {
         case nil: return true
         case .duplicateLegendary: return s.graduatedLegendaryCopies >= 2
@@ -2917,7 +3017,8 @@ final class CompanionStore {
             let progress = collectionProgress(graduatedOnly: graduatedOnly, of: s, battleForms: battleForms)
             return progress.forms >= progress.formsTotal
         case .allPikachuCostumes: return s.pikachuCostumes.count >= PikachuCostume.allCases.count
-        case .forms(let goal): return formProgress(goal, of: s).isMet
+        // The state's own forms index when none is given: read once until it changes.
+        case .forms(let goal): return formProgress(goal, of: given).isMet
         case .species:
             let counted = registered ?? (graduatedOnly ? s.graduatedSpeciesIDs : s.registeredSpeciesIDs)
             return unlockProgress(of: kind, registered: counted).contains(where: \.isMet)
@@ -2975,8 +3076,17 @@ final class CompanionStore {
         var isMet: Bool { count >= goal.forms.count }
     }
 
+    /// `GraduatedForms` of the state, read once until it changes.
+    private var graduatedFormsIndex: GraduatedForms {
+        if let cached = graduatedFormsCache { return cached }
+        let index = GraduatedForms(state.dex)
+        graduatedFormsCache = index
+        return index
+    }
+
     func formProgress(_ goal: FormGoal, of s: CompanionState? = nil) -> FormProgress {
-        let graduated = (s ?? state).collectedForms(speciesID: goal.speciesID, graduatedOnly: true)
+        let graduated = s.map { $0.collectedForms(speciesID: goal.speciesID, graduatedOnly: true) }
+            ?? state.graduatedForms(speciesID: goal.speciesID, graduatedFormsIndex)
         return FormProgress(goal: goal, graduated: goal.forms.filter(graduated.contains))
     }
 
@@ -3001,17 +3111,14 @@ final class CompanionStore {
     }
 
     func achievementTally(in group: CollectorGroup? = nil) -> AchievementTally {
-        let registered = graduatedSpeciesIDs
-        var tally = AchievementTally()
-        for kind in Self.achievementItems where group == nil || kind.collectorGroup == group {
-            count(kind, into: &tally, registered: registered)
-        }
-        return tally
+        let tallies = achievementTallies()
+        return group.map { tallies.byGroup[$0] ?? AchievementTally() } ?? tallies.all
     }
 
     /// Every section's tally and the whole one in one pass, which the Achievements tab reads once per draw: its
     /// header, tabs, banner and progress line counted them some 17 times.
     func achievementTallies() -> (all: AchievementTally, byGroup: [CollectorGroup: AchievementTally]) {
+        if let cached = achievementTalliesCache { return cached }
         let registered = graduatedSpeciesIDs
         var all = AchievementTally()
         var byGroup: [CollectorGroup: AchievementTally] = [:]
@@ -3025,6 +3132,7 @@ final class CompanionStore {
                 byGroup[group] = tally
             }
         }
+        achievementTalliesCache = (all, byGroup)
         return (all, byGroup)
     }
 
@@ -3434,56 +3542,110 @@ final class CompanionStore {
 
     // MARK: Costume Eggs
 
-    /// The owner's rule of 2026-11-13: one Costume Egg every 300M tokens used, holding a Pokémon of the month's
-    /// costumes (the month of `day`, `yyyy-MM-dd`, the usage's day), fixed now: one whose costumed stages are not all
-    /// collected, nor waiting in an egg or raised, first; once the month's lot is complete, any of it, for its shiny.
+    /// One Costume Egg every 300M tokens used during the month's event (the owner, 2026-11-13), only while its lot has
+    /// more costumes left to collect than eggs waiting (the owner, 2026-11-18: "si dans l'inventaire on a 3 œufs et
+    /// qu'il nous reste 3 costumes à déverrouiller, on gagne pas de 4e œuf"). What an egg holds is drawn when opened.
     func earnCostumeEggs(_ tokens: Int, day: String) {
         guard tokens > 0, let month = CostumeCatalog.month(ofDay: day) else { return }
         let total = state.costumeEggTokens + tokens
         let count = total / CostumeCatalog.tokensPerEgg
         state.costumeEggTokens = total % CostumeCatalog.tokensPerEgg
         guard count > 0 else { return }
-        var earned: [CostumeEgg] = []
-        for _ in 0..<count {
-            guard let egg = drawCostumeEgg(month: month) else { break }
-            state.costumeEggs.append(egg)
-            earned.append(egg)
+        var earned = 0
+        for _ in 0..<count where costumeEggsLeftToEarn(month: month) > 0 {
+            state.costumeEggs.append(CostumeEgg(month: month))
+            earned += 1
         }
-        guard let first = earned.first else { return }
-        AppLog.write("costumes: +\(earned.count) egg(s) of month \(month)")
-        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(first.month),
-                                                                             count: earned.count))
+        guard earned > 0 else { return }
+        AppLog.write("costumes: +\(earned) egg(s) of month \(month)")
+        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(month), count: earned))
     }
 
-    /// One of the month's first costumed stages, the missing ones first (`costumesTaken`, the eggs waiting).
-    func drawCostumeEgg(month: Int) -> CostumeEgg? {
-        let starts = CostumeCatalog.starts(month: month)
-        guard !starts.isEmpty else { return nil }
+    /// The costumes collected or promised: the Pokédex's, the Pokémon raised's, the egg incubating's.
+    private var costumesTakenOrIncubating: Set<String> {
         var taken = costumesTaken()
-        let waiting = state.costumeEggs + [state.eggFromCostume].compactMap { $0 }
-        for egg in waiting {
-            if let start = egg.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }
+        if let start = state.eggFromCostume?.entry { taken.formUnion(CostumeCatalog.family(of: start).map(\.key)) }
+        return taken
+    }
+
+    /// The eggs `month`'s lot can still give: its costumes not collected nor promised, less the eggs of that month
+    /// waiting in the Bag.
+    func costumeEggsLeftToEarn(month: Int) -> Int {
+        let taken = costumesTakenOrIncubating
+        let left = CostumeCatalog.lot(month: month).filter { !taken.contains($0.key) }.count
+        return left - state.costumeEggs.filter { $0.month == month }.count
+    }
+
+    /// A costume's stages the player can raise: those of species already graduated, each grown from the one before
+    /// (the owner, 2026-11-18: a costumed Eevee grew into Eeveelutions never caught).
+    static func ownedFamily(of entry: CostumeEntry, owned: Set<Int>) -> [CostumeEntry] {
+        [entry] + CostumeCatalog.children(of: entry).filter { owned.contains($0.speciesID) }
+            .flatMap { ownedFamily(of: $0, owned: owned) }
+    }
+
+    /// What a Costume Egg of `month` can hatch now: each costume line from the first of its species the player has,
+    /// when its stages they can raise still hold a costume not collected. None: the egg waits, locked.
+    func costumeEggCandidates(month: Int) -> [CostumeEntry] {
+        let owned = graduatedSpeciesIDs
+        let taken = costumesTakenOrIncubating
+        func roots(_ entry: CostumeEntry) -> [CostumeEntry] {
+            owned.contains(entry.speciesID) ? [entry] : CostumeCatalog.children(of: entry).flatMap(roots)
         }
-        let missing = starts.filter { start in CostumeCatalog.family(of: start).contains { !taken.contains($0.key) } }
-        let pool = missing.isEmpty ? starts : missing
+        return CostumeCatalog.starts(month: month).flatMap(roots).filter { root in
+            Self.ownedFamily(of: root, owned: owned).contains { !taken.contains($0.key) }
+        }
+    }
+
+    /// What an opened Costume Egg holds: one of its candidates, at random. Nil when none.
+    func drawCostumeEgg(month: Int) -> CostumeEgg? {
+        let pool = costumeEggCandidates(month: month)
+        guard !pool.isEmpty else { return nil }
         let pick = pool[Int(rng.next() % UInt64(pool.count))]
         return CostumeEgg(id: UUID().uuidString, code: pick.code, speciesID: pick.speciesID, form: pick.form, month: month)
     }
 
-    /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off.
-    func canUseCostumeEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id }
+    /// The Bag's Costume Eggs, one stack a season (the owner, 2026-11-18: "comme les autres œufs similaires"): they
+    /// hold only their month, so a season's are alike. This month's first, then the latest seasons; `first` is the one
+    /// a use opens.
+    struct CostumeEggStack: Equatable, Identifiable {
+        let month: Int
+        let first: CostumeEgg
+        let count: Int
+        var id: Int { month }
     }
 
-    /// Uses a Costume Egg: the Pokémon raised is sent off for it, and it hatches its costumed Pokémon (`hatchCore`).
+    var costumeEggStacks: [CostumeEggStack] {
+        let now = costumeMonth
+        let byMonth = Dictionary(grouping: state.costumeEggs, by: \.month)
+        // A season's eggs are earned in its month: the months back from this one, this one first.
+        return byMonth.keys.sorted { (now - $0 + 12) % 12 < (now - $1 + 12) % 12 }.compactMap { month in
+            byMonth[month].flatMap { eggs in eggs.first.map { CostumeEggStack(month: month, first: $0, count: eggs.count) } }
+        }
+    }
+
+    /// Whether a Costume Egg of the Bag is locked: none of the player's Pokémon has a costume left in its lot.
+    func isCostumeEggLocked(_ id: String) -> Bool {
+        guard let egg = state.costumeEggs.first(where: { $0.id == id }) else { return false }
+        return costumeEggCandidates(month: egg.month).isEmpty
+    }
+
+    /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off; not while locked.
+    func canUseCostumeEgg(_ id: String) -> Bool {
+        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
+    }
+
+    /// Uses a Costume Egg: what it holds is drawn now, the Pokémon raised is sent off for it, and it hatches its
+    /// costumed Pokémon (`hatchCore`).
     @discardableResult
     func useCostumeEgg(_ id: String) -> Bool {
-        guard canUseCostumeEgg(id), let egg = state.costumeEggs.first(where: { $0.id == id }) else { return false }
+        guard canUseCostumeEgg(id), let egg = state.costumeEggs.first(where: { $0.id == id }),
+              var content = drawCostumeEgg(month: egg.month) else { return false }
+        content.id = egg.id
         state.costumeEggs.removeAll { $0.id == id }
         replaceActiveWithEgg(price: 0, tier: nil, type: nil)
-        state.eggFromCostume = egg
+        state.eggFromCostume = content
         save()
-        AppLog.write("costume egg used: \(egg.code) #\(egg.speciesID)")
+        AppLog.write("costume egg used: \(content.code) #\(content.speciesID)")
         return true
     }
 
@@ -4202,7 +4364,8 @@ final class CompanionStore {
         prefetchedLineID = nil
         // A Costume Egg hatches its first costumed stage, which grows only into the stages wearing its costume.
         let costumeEgg = state.eggFromCostume
-        let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form) }
+        let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form,
+                                                         owned: graduatedSpeciesIDs) }
             ?? fetched
         let firstID = costumeEgg == nil ? line.baseID : line.tree.speciesID
         currentLine = line
@@ -4314,11 +4477,13 @@ final class CompanionStore {
     /// The line a costumed Pokémon grows on (the owner, 2026-11-13): from the first stage wearing its costume, only the
     /// evolutions that wear it too (`CostumeCatalog.children`); its line's base, rarity and names stay the line's. Nil
     /// when the line has no such stage.
-    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?) -> EvoLine? {
+    /// `owned`: the species graduated, the only ones it may grow into (the owner, 2026-11-18); nil keeps every stage
+    /// wearing the costume (a line reloaded for a Pokémon already raised).
+    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil) -> EvoLine? {
         guard let node = line.tree.node(withID: start) else { return nil }
         func prune(_ node: EvoNode) -> EvoNode {
             let worn = CostumeCatalog.entry(code: code, speciesID: node.speciesID, form: form)
-                .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID)) } ?? []
+                .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID).filter { owned?.contains($0) ?? true }) } ?? []
             return EvoNode(speciesID: node.speciesID, children: node.children.filter { worn.contains($0.speciesID) }.map(prune))
         }
         return EvoLine(baseID: line.baseID, tree: prune(node), rarity: line.rarity, names: line.names)
@@ -4528,6 +4693,16 @@ final class CompanionStore {
 
     static func speciesTotals(_ index: [BaseSpecies]) -> [Rarity: Int] {
         index.reduce(into: [:]) { totals, base in totals[base.rarity, default: 0] += lineSizes[base.id] ?? 1 }
+    }
+
+    /// Each species' rarity, its line's in the hatch index: a species never caught has one too, for the Pokédex's rarity
+    /// filter (#183). Nil before the index loads.
+    var speciesRarities: [Int: Rarity]? {
+        guard let index = hatchIndex else { return nil }
+        let byLine = Dictionary(index.map { ($0.id, $0.rarity) }, uniquingKeysWith: { first, _ in first })
+        return PokemonAssets.animatedSpeciesIDs.reduce(into: [:]) { out, id in
+            out[id] = byLine[PokemonEvolutionData.root(of: id)]
+        }
     }
 
     func loadHatchIndex() async {

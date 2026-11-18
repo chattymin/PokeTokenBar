@@ -7,22 +7,23 @@ struct BagView: View {
     let nav: PopoverNavigation
     /// The Bag's own height: what `BagHubView` leaves under its switch.
     var height: CGFloat = 520
-    @State private var section: Section = .items
-    /// What the last Explorer's Chest held: shown above the items, the chest gone with its last.
+    /// What the last Explorer's Chest held: shown above the dungeons' items, the chest gone with its last.
     @State private var chestFound: (kind: ItemKind, count: Int)?
 
-    /// The Bag's sections, as the Achievements tabs: items (Shop, candies, stones, the dungeons' consumables and
-    /// eggs), gym badges, artifacts. The 18 badges used to fill the list and hide the other items.
+    /// The Bag's tabs, as the Achievements': the raising (the candies, every egg and stone, the Mint, what is kept for
+    /// good), the dungeons' items, gym badges, artifacts. The 18 badges used to fill the list and hide the other items;
+    /// the dungeons' items had their own section of a single Items tab until #183.
     enum Section: CaseIterable, Hashable {
-        case items, badges, artifacts
+        case raising, dungeons, badges, artifacts
 
         static func of(_ kind: ItemKind) -> Section {
             // An egg is an item to use, whatever achievement gave it (the Legendary Egg, Type: Null's).
-            if CompanionStore.bagSection(of: kind) == .eggs { return .items }
+            let section = CompanionStore.bagSection(of: kind)
+            if section == .eggs { return .raising }
             switch kind.collectorGroup {
             case .gymBadges?: return .badges
             case .legendaryArtifacts?, .forms?: return .artifacts
-            case .evolutionStones?, nil: return .items
+            case .evolutionStones?, nil: return section == .dungeons ? .dungeons : .raising
             }
         }
     }
@@ -37,59 +38,72 @@ struct BagView: View {
     private var content: some View {
         let owned = store.ownedItems
         let eggs = store.dungeonProgress.eggs
-        let costumeEggs = store.state.costumeEggs
+        let costumeEggs = store.costumeEggStacks
         let specialEggs = eggs.count + costumeEggs.count
         if owned.isEmpty && specialEggs == 0 && chestFound == nil {
             emptyState
         } else {
+            // The chest's banner stays on the dungeons' tab it was opened from, even when it held the last item there.
             let sections = Section.allCases.filter { s in
-                owned.contains { Section.of($0.kind) == s } || (s == .items && (specialEggs > 0 || chestFound != nil))
+                owned.contains { Section.of($0.kind) == s } || (s == .raising && specialEggs > 0)
+                    || (s == .dungeons && chestFound != nil)
             }
-            let current = sections.contains(section) ? section : sections[0]
+            let current = sections.contains(nav.bagSection) ? nav.bagSection : sections[0]
             let items = owned.filter { Section.of($0.kind) == current }
             // 고정 높이 — 컬렉션과 동일(팝오버 재오픈 시 fitting size 축소 방지).
             VStack(alignment: .leading, spacing: 8) {
                 if sections.count > 1 {
-                    PillPicker(selection: Binding(get: { current }, set: { section = $0 }),
+                    PillPicker(selection: Binding(get: { current }, set: { nav.bagSection = $0 }),
                                options: sections.map { s in
-                                   (s, "\(title(s)) \(owned.filter { Section.of($0.kind) == s }.count + (s == .items ? specialEggs : 0))")
+                                   (s, "\(title(s)) \(owned.filter { Section.of($0.kind) == s }.count + (s == .raising ? specialEggs : 0))")
                                })
                 }
-                ScrollView {
-                    if current == .badges {
-                        badgeGrid(items.map(\.kind))
-                    } else {
+                if current == .raising {
+                    ScrollView {
                         VStack(alignment: .leading, spacing: 8) {
-                            if current == .items {
-                                if let found = chestFound { chestBanner(found) }
-                                // The Shop's sections (2026-11-09): the eggs, the dungeon eggs first among them.
-                                ForEach(Self.itemSections(items, dungeonEggs: specialEggs > 0), id: \.section) { group in
-                                    SectionTitle(text: store.l.shopSection(group.section))
-                                        .padding(.top, 4)
-                                    if group.section == .eggs {
-                                        ForEach(eggs) { egg in
-                                            DungeonEggCard(store: store, nav: nav, egg: egg)
-                                        }
-                                        ForEach(costumeEggs) { egg in
-                                            CostumeEggCard(store: store, nav: nav, egg: egg)
-                                        }
+                            // The Shop's sections (2026-11-09): the eggs, the dungeon eggs first among them.
+                            ForEach(Self.itemSections(items, dungeonEggs: specialEggs > 0), id: \.section) { group in
+                                SectionTitle(text: store.l.shopSection(group.section))
+                                    .padding(.top, 4)
+                                if group.section == .eggs {
+                                    ForEach(eggs) { egg in
+                                        DungeonEggCard(store: store, nav: nav, egg: egg)
                                     }
-                                    itemCards(group.items)
+                                    ForEach(costumeEggs) { stack in
+                                        CostumeEggCard(store: store, nav: nav, egg: stack.first, count: stack.count)
+                                    }
                                 }
-                            } else {
-                                itemCards(items)
+                                itemCards(group.items)
                             }
                         }
                         .reservesScrollerLane()
                     }
+                } else {
+                    // The dungeons' items, the badges or the artifacts: every one in a list that scrolls, as the
+                    // raising tab, each tab from its top.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if current == .dungeons, let found = chestFound { chestBanner(found) }
+                            let sorted: [(kind: ItemKind, count: Int)] = items.sorted {
+                                CompanionStore.bagOrdered($0.kind, $1.kind)
+                            }
+                            if current == .badges {
+                                badgeGrid(sorted.map(\.kind))
+                            } else {
+                                itemCards(sorted)
+                            }
+                        }
+                        .reservesScrollerLane()
+                    }
+                    .id(current)
                 }
             }
             .frame(height: height)
         }
     }
 
-    /// The Items tab's sections in the Bag's order (the candies first, then the Shop's), empty ones left out; the eggs'
-    /// one also stands for the dungeon eggs alone.
+    /// The raising tab's sections in the Bag's order (the candies first, then the Shop's), empty ones left out; the
+    /// eggs' one also stands for the dungeon eggs alone.
     static func itemSections(_ items: [(kind: ItemKind, count: Int)], dungeonEggs: Bool)
         -> [(section: CompanionStore.ShopSection, items: [(kind: ItemKind, count: Int)])] {
         // A plain loop: Xcode 27.2's compiler could not type the closure this was (a nil or an unlabeled tuple, the
@@ -114,7 +128,8 @@ struct BagView: View {
 
     private func title(_ section: Section) -> String {
         switch section {
-        case .items: return store.l.bagItemsTitle
+        case .raising: return store.l.raisingTab
+        case .dungeons: return store.l.dungeonsTab
         case .badges: return store.l.collectorGroupTitle(.gymBadges)
         case .artifacts: return store.l.collectorGroupTitle(.legendaryArtifacts)
         }
@@ -148,7 +163,6 @@ struct BagView: View {
                 }
             }
         }
-        .reservesScrollerLane()
     }
 
     /// 빈 가방 — 움직이는 잠만보(143) + 안내(특정 아이템명 미언급, 확장 대비).
@@ -183,10 +197,10 @@ private struct ItemCard: View {
 
     var body: some View {
         let l = store.l
-        VStack(alignment: .leading, spacing: 8) {
+        VStack(alignment: .leading, spacing: Design.productCardSpacing) {
             HStack(alignment: .top, spacing: 10) {
                 ItemIconView(kind: kind, size: 30)
-                VStack(alignment: .leading, spacing: 2) {
+                VStack(alignment: .leading, spacing: Design.productTextSpacing) {
                     HStack(spacing: 6) {
                         Text(l.itemName(kind)).font(.callout.weight(.semibold))
                         if let type = kind.stoneType {
@@ -208,11 +222,13 @@ private struct ItemCard: View {
                     }
                     Text(l.itemDescription(kind, rareCandyXP: store.rareCandyXP))
                         .font(.caption).foregroundStyle(.secondary)
+                        .lineSpacing(Design.productLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
                     // A stone or a Shop egg sends the companion off: say what stays.
                     if kind.stoneType != nil || kind.isShopEgg, store.hasActive {
                         Text(l.eggReleaseNote)
                             .font(.caption2).foregroundStyle(.tertiary)
+                            .lineSpacing(Design.productLineSpacing)
                             .fixedSize(horizontal: false, vertical: true)
                     }
                 }
@@ -234,8 +250,7 @@ private struct ItemCard: View {
             }
             useControls(l)
         }
-        .padding(12)
-        .designSurface(cornerRadius: Design.cornerRadius)
+        .productCard()
         .onChange(of: store.maxRareCandyUseCount) { _, _ in
             candyCount = selectedCandyCount
         }
@@ -333,7 +348,7 @@ private struct ItemCard: View {
                         .font(.caption2).foregroundStyle(.tertiary).monospacedDigit()
                     Spacer()
                     Button(l.useItem) { confirming = true }
-                        .buttonStyle(.pill())
+                        .buttonStyle(.pill(prominent: true))
                 }
             }
         } else {

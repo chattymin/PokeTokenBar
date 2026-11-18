@@ -35,9 +35,23 @@ final class CostumeTests: XCTestCase {
         return CompanionStore(provider: Lines(), clock: { self.now }, fileURL: url, rng: SeededRNG(seed: 5), difficulty: 0.1)
     }
 
-    private func egg(_ code: String, _ species: Int, month: Int = 12) -> CostumeEgg {
-        CostumeEgg(id: "\(code)-\(species)", code: code, speciesID: species, form: nil, month: month)
+    /// A Costume Egg as earned: its month only (the owner, 2026-11-18: what it holds is drawn when opened).
+    private func egg(_ id: String, month: Int = 12) -> CostumeEgg { CostumeEgg(month: month, id: id) }
+
+    /// A graduated Pokémon of this chain, no costume: its species held.
+    private func plain(_ chain: [Int]) -> DexEntry {
+        DexEntry(baseID: chain[0], finalID: chain.last ?? chain[0], chainOrder: chain, rarity: .common, caughtAt: now)
     }
+
+    /// A graduated Pokémon wearing this costume: the costume collected.
+    private func dressed(_ entry: CostumeEntry) -> DexEntry {
+        var record = DexEntry(baseID: SpeciesInfo.baseID(of: entry.speciesID), finalID: entry.speciesID,
+                              chainOrder: [entry.speciesID], rarity: .common, caughtAt: now, form: entry.form)
+        record.costume = entry.code
+        return record
+    }
+
+    private func costumes(_ keys: [String]) -> [CostumeEntry] { keys.compactMap { CostumeCatalog.byKey[$0] } }
 
     /// Grows the Pokémon raised until it graduates, at most `stages` evolutions on.
     private func growToTheEnd(_ s: CompanionStore) {
@@ -107,7 +121,7 @@ final class CostumeTests: XCTestCase {
     // MARK: The eggs
     // MARK: The eggs
 
-    /// One every 300M tokens, of the day's month, the missing ones first.
+    /// One every 300M tokens, of the day's month; it holds its month only, what it gives is drawn when opened.
     func testAnEggEvery300MTokensOfTheMonthsLot() throws {
         let s = try store()
         s.earnCostumeEggs(250_000_000, day: "2026-12-05")
@@ -115,73 +129,102 @@ final class CostumeTests: XCTestCase {
         s.earnCostumeEggs(400_000_000, day: "2026-12-05")
         XCTAssertEqual(s.state.costumeEggs.count, 2)
         XCTAssertEqual(s.state.costumeEggTokens, 50_000_000, "the rest kept toward the next")
-        let december = Set(CostumeCatalog.starts(month: 12).map(\.key))
-        XCTAssertTrue(s.state.costumeEggs.allSatisfy { $0.month == 12 && december.contains($0.entry?.key ?? "") })
-        XCTAssertNotEqual(s.state.costumeEggs[0].entry, s.state.costumeEggs[1].entry, "a costume waiting is not drawn again")
+        XCTAssertEqual(s.state.costumeEggs.map(\.month), [12, 12])
+        XCTAssertTrue(s.state.costumeEggs.allSatisfy { $0.entry == nil }, "nothing drawn yet")
         s.earnCostumeEggs(300_000_000, day: "2027-01-02")
         XCTAssertEqual(s.state.costumeEggs.last?.month, 1, "January's lot in January")
+    }
+
+    /// The owner, 2026-11-18: three eggs waiting for three costumes left, no fourth; a lot complete gives none.
+    func testEggsStopOnceTheyCoverTheCostumesLeft() throws {
+        let june = CostumeCatalog.lot(month: 6)
+        let s = try store { $0.dex = june.dropFirst(3).map(self.dressed) }
+        XCTAssertEqual(s.costumeEggsLeftToEarn(month: 6), 3)
+        s.earnCostumeEggs(3_000_000_000, day: "2026-06-10")
+        XCTAssertEqual(s.state.costumeEggs.count, 3, "as many as the costumes left")
+        XCTAssertEqual(s.costumeEggsLeftToEarn(month: 6), 0)
+        let full = try store { $0.dex = june.map(self.dressed) }
+        full.earnCostumeEggs(3_000_000_000, day: "2026-06-10")
+        XCTAssertTrue(full.state.costumeEggs.isEmpty, "the lot complete: no egg")
+        XCTAssertNil(full.drawCostumeEgg(month: 6))
+    }
+
+    /// The owner, 2026-11-18: a season's eggs stack in the Bag as the other eggs do; a use opens one of the stack.
+    func testASeasonsEggsStack() throws {
+        let s = try store {
+            $0.costumeEggs = [self.egg("b", month: 11), self.egg("a", month: 12), self.egg("c", month: 12), self.egg("d", month: 12)]
+            $0.dex = [self.plain([172, 25, 26])]
+        }
+        XCTAssertEqual(s.costumeEggStacks.map(\.month), [12, 11], "this month's first, then the latest")
+        XCTAssertEqual(s.costumeEggStacks.map(\.count), [3, 1])
+        XCTAssertEqual(s.costumeEggStacks.first?.first.id, "a")
+        XCTAssertTrue(s.useCostumeEgg("a"))
+        XCTAssertEqual(s.costumeEggStacks.map(\.count), [2, 1], "one of the stack opened")
+    }
+
+    /// The owner, 2026-11-18: an egg gives only a Pokémon the player has; with none of its lot's, it stays locked.
+    func testAnEggIsLockedUntilAPokemonOfItsLotIsHeld() throws {
+        let none = try store { $0.costumeEggs = [self.egg("e")] }
+        XCTAssertTrue(none.isCostumeEggLocked("e"))
+        XCTAssertFalse(none.useCostumeEgg("e"))
+        XCTAssertEqual(none.state.costumeEggs.count, 1, "kept, locked")
+        let held = try store { $0.costumeEggs = [self.egg("e")]; $0.dex = [self.plain([172, 25, 26])] }
+        XCTAssertFalse(held.isCostumeEggLocked("e"))
+        XCTAssertTrue(held.costumeEggCandidates(month: 12).allSatisfy { [172, 25, 26].contains($0.speciesID) },
+                      "only the Pichu line, the one held")
+    }
+
+    /// [Regression] The owner, 2026-11-18: a costumed Eevee grew into Eeveelutions never caught. The egg's Pokémon grows
+    /// only into species already held.
+    func testItGrowsOnlyIntoSpeciesHeld() async throws {
+        let s = try store { $0.costumeEggs = [self.egg("e")]; $0.dex = [self.plain([133])] }
+        XCTAssertEqual(s.costumeEggCandidates(month: 12).map(\.key), ["HOLIDAY_2022:133"])
+        XCTAssertTrue(s.useCostumeEgg("e"))
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.state.active?.costume, "HOLIDAY_2022")
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [133], "no Vaporeon nor any Eeveelution not held")
     }
 
     /// [Regression] A friend's report of 2026-11-16: a "can't evolve" costume counted at its hatch, so sending the
     /// Pokémon off at once kept it, and Home still said "New costume". As the Pokédex counts: collected once graduated.
     func testACostumeIsCollectedOnceGraduatedNeverSentOff() async throws {
-        let first = CostumeEgg(id: "a", code: "JAN_2023_NOEVOLVE", speciesID: 25, form: nil, month: 1)
-        var second = first
-        second.id = "b"
-        let s = try store { $0.costumeEggs = [first, second] }
+        let s = try store { $0.costumeEggs = [self.egg("a", month: 1), self.egg("b", month: 1)]; $0.dex = [self.plain([25])] }
         XCTAssertTrue(s.useCostumeEgg("a"))
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
-        XCTAssertEqual(s.state.active?.costume, "JAN_2023_NOEVOLVE")
+        let code = try XCTUnwrap(s.state.active?.costume)
+        XCTAssertTrue(code.hasSuffix("_NOEVOLVE"), code)
         XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "raised, not collected")
         XCTAssertTrue(s.useCostumeEgg("b"), "sent off for the next egg")
-        XCTAssertTrue(s.state.dex.contains { $0.isReleased && $0.costume == "JAN_2023_NOEVOLVE" })
+        XCTAssertTrue(s.state.dex.contains { $0.isReleased && $0.costume == code })
         XCTAssertTrue(s.ownedCostumeKeys().all.isEmpty, "sent off: not collected")
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
-        XCTAssertEqual(s.activeNews?.newCostume, true, "still new: sending it off would lose it")
+        let next = try XCTUnwrap(s.state.active?.costume)
         growToTheEnd(s)
-        XCTAssertEqual(s.ownedCostumeKeys().all, ["JAN_2023_NOEVOLVE:25"], "graduated: collected")
+        XCTAssertEqual(s.ownedCostumeKeys().all, ["\(next):25"], "graduated: collected")
     }
 
-    /// The one missing comes first: with every costume of June in but one, the egg holds that one, whichever it is.
+    /// The egg holds a costume missing, of a Pokémon held: with every costume of June in but one, that one.
     func testTheMissingCostumeComesFirst() throws {
-        let starts = CostumeCatalog.starts(month: 6)
-        XCTAssertGreaterThan(starts.count, 3)
-        for missing in starts {
+        for missing in CostumeCatalog.starts(month: 6) {
+            let family = CostumeCatalog.family(of: missing)
             let s = try store {
-                $0.dex = CostumeCatalog.lot(month: 6).filter { !CostumeCatalog.family(of: missing).contains($0) }.map { entry in
-                    var record = DexEntry(baseID: SpeciesInfo.baseID(of: entry.speciesID), finalID: entry.speciesID,
-                                          chainOrder: [entry.speciesID], rarity: .common, caughtAt: Date(), form: entry.form)
-                    record.costume = entry.code
-                    return record
-                }
+                $0.dex = CostumeCatalog.lot(month: 6).filter { !family.contains($0) }.map(self.dressed)
+                    + [self.plain(family.map(\.speciesID))]
             }
             XCTAssertEqual(s.drawCostumeEgg(month: 6)?.entry, missing, missing.key)
         }
     }
 
-    /// Once the whole lot is in: any of it again, for its shiny.
-    func testAFullLotStillGivesEggs() throws {
-        let starts = CostumeCatalog.starts(month: 6)
-        let s = try store {
-            $0.dex = CostumeCatalog.lot(month: 6).map { entry in
-                var record = DexEntry(baseID: SpeciesInfo.baseID(of: entry.speciesID), finalID: entry.speciesID,
-                                      chainOrder: [entry.speciesID], rarity: .common, caughtAt: Date(), form: entry.form)
-                record.costume = entry.code
-                return record
-            }
-        }
-        XCTAssertEqual(s.ownedCostumeKeys().all, Set(CostumeCatalog.lot(month: 6).map(\.key)))
-        let egg = try XCTUnwrap(s.drawCostumeEgg(month: 6))
-        XCTAssertTrue(starts.map(\.key).contains(egg.entry?.key ?? ""))
-    }
-
     /// The egg hatches its first costumed stage, which grows only into the stages wearing the costume and graduates
     /// wearing it: Pichu, Pikachu and Raichu in the same hat.
     func testItHatchesAndGrowsInItsCostume() async throws {
-        let s = try store { $0.costumeEggs = [self.egg("HOLIDAY_2016", 172)] }
-        XCTAssertTrue(s.useCostumeEgg("HOLIDAY_2016-172"))
+        // December's other Pichu-line costumes already in: the Holiday 2016 hat is the one left.
+        let others = costumes(["HOLIDAY_2023:25", "HOLIDAY_2023:26", "WINTER_2018:172", "WINTER_2018:25", "WINTER_2018:26"])
+        let s = try store { $0.costumeEggs = [self.egg("e")]; $0.dex = [self.plain([172, 25, 26])] + others.map(self.dressed) }
+        XCTAssertTrue(s.useCostumeEgg("e"))
         XCTAssertTrue(s.state.costumeEggs.isEmpty)
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
@@ -192,22 +235,29 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(pichu.spriteForm, CostumeCatalog.displayForm(code: "HOLIDAY_2016", form: nil))
         XCTAssertEqual(pichu.hatch?.egg, .costume(code: "HOLIDAY_2016", speciesID: 172))
         XCTAssertNil(s.state.eggFromCostume)
-        XCTAssertEqual(s.ownedCostumeKeys().all, [], "collected once graduated, as the Pokédex counts")
-        XCTAssertEqual(s.costumesTaken(), ["HOLIDAY_2016:172", "HOLIDAY_2016:25", "HOLIDAY_2016:26"], "never drawn again meanwhile")
+        let hat: Set<String> = ["HOLIDAY_2016:172", "HOLIDAY_2016:25", "HOLIDAY_2016:26"]
+        XCTAssertTrue(s.ownedCostumeKeys().all.isDisjoint(with: hat), "collected once graduated, as the Pokédex counts")
+        XCTAssertTrue(s.costumesTaken().isSuperset(of: hat), "never drawn again meanwhile")
         growToTheEnd(s)
         XCTAssertNil(s.state.active, "graduated")
         let record = try XCTUnwrap(s.state.dex.last)
         XCTAssertEqual(record.chainOrder, [172, 25, 26])
         XCTAssertEqual(record.costume, "HOLIDAY_2016")
         XCTAssertEqual(record.spriteForm(), CostumeCatalog.displayForm(code: "HOLIDAY_2016", form: nil))
-        XCTAssertEqual(s.ownedCostumeKeys().all, ["HOLIDAY_2016:172", "HOLIDAY_2016:25", "HOLIDAY_2016:26"])
+        XCTAssertTrue(s.ownedCostumeKeys().all.isSuperset(of: hat))
     }
 
     /// [Regression of the plan] A costume starting mid-line (Pikachu and Raichu, no Pichu) hatches as Pikachu, and a
     /// "can't evolve" one stays as it hatched though its species evolves: the line's root never takes over.
     func testItStartsMidLineAndStopsWhereTheCostumeStops() async throws {
-        let s = try store { $0.costumeEggs = [self.egg("FEB_2019", 25, month: 2), self.egg("JAN_2023_NOEVOLVE", 25, month: 1)] }
-        XCTAssertTrue(s.useCostumeEgg("FEB_2019-25"))
+        // February's other Pikachu costumes already in: the 2019 one, on Pikachu and Raichu, is left.
+        let february = CostumeCatalog.lot(month: 2).filter { [25, 26].contains($0.speciesID) && $0.code != "FEB_2019" }
+        let s = try store {
+            $0.costumeEggs = [self.egg("feb", month: 2), self.egg("jan", month: 1)]
+            $0.dex = [self.plain([172, 25, 26])] + february.map(self.dressed)
+        }
+        XCTAssertEqual(s.costumeEggCandidates(month: 2).map(\.key), ["FEB_2019:25"])
+        XCTAssertTrue(s.useCostumeEgg("feb"))
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.pathIDs, [25])
@@ -217,7 +267,7 @@ final class CostumeTests: XCTestCase {
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
         XCTAssertNotNil(s.state.active, "the next egg hatched: a Pokémon raised to send off")
-        XCTAssertTrue(s.useCostumeEgg("JAN_2023_NOEVOLVE-25"))
+        XCTAssertTrue(s.useCostumeEgg("jan"))
         s.setEggUsageForTesting(s.eggHatchThreshold)
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.plannedPathIDs, [25])

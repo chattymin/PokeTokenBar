@@ -370,6 +370,11 @@ struct EvoLineView: View {
     var language: AppLanguage = .systemDefault
     var thumb: CGFloat = 40
     var shiny: Bool = false     // 개체가 shiny 면 라인 전체를 shiny 스프라이트로
+    /// With `shiny`, the stages drawn shiny: nil for every one (an individual's own path), else these only (a Pokédex
+    /// page's family, each species once caught shiny).
+    var shinyStages: Set<Int>? = nil
+    /// The several evolutions of a stage wrap onto more lines within `maxWidth` rather than scroll in one row.
+    var wrapsBranches = false
     var names: [Int: String]? = nil   // 제공되면 각 스프라이트 밑에 작은 이름 라벨(도감 단계별 이름)
     /// 한 줄이 쓸 수 있는 가로 폭. 기본 .infinity = 제한 없음(스크롤 없이 나열).
     var maxWidth: CGFloat = .infinity
@@ -423,8 +428,11 @@ struct EvoLineView: View {
     }
 
     var body: some View {
-        if Self.needsScroll(count: totalColumns, thumb: thumb,
-                            hasNames: names != nil, maxWidth: maxWidth) {
+        if wrapsBranches {
+            // Centered in its card: as much room on each side (the owner, 2026-11-17).
+            row.frame(maxWidth: maxWidth, alignment: .center)
+        } else if Self.needsScroll(count: totalColumns, thumb: thumb,
+                                   hasNames: names != nil, maxWidth: maxWidth) {
             scrollableRow
         } else {
             row
@@ -567,6 +575,10 @@ struct EvoLineView: View {
         return dexLinkModifier(forSpeciesID: id, isCollected: node.state != .uncaught)
     }
 
+    private func drawsShiny(_ speciesID: Int) -> Bool {
+        shiny && shinyStages.map { $0.contains(speciesID) } ?? true
+    }
+
     private var row: some View {
         HStack(alignment: .top, spacing: Self.spacing) {
             ForEach(Array(nodes.enumerated()), id: \.offset) { i, node in
@@ -580,7 +592,7 @@ struct EvoLineView: View {
                 case .species(let id):
                     let uncaught = node.state == .uncaught
                     VStack(spacing: 1) {
-                        SpriteView(speciesID: id, size: thumb, shiny: shiny && !uncaught, form: form,
+                        SpriteView(speciesID: id, size: thumb, shiny: drawsShiny(id) && !uncaught, form: form,
                                    isSilhouette: uncaught, sameScale: true, bottomAligned: bottomAligned)
                             .opacity(node.state == .future ? 0.32 : 1)
                             .saturation(node.state == .future ? 0.4 : 1)
@@ -616,41 +628,53 @@ struct EvoLineView: View {
                     .id(i)
 
                 case .branch(let items):
-                    HStack(alignment: .top, spacing: Self.spacing) {
-                        ForEach(items) { item in
-                            VStack(spacing: 1) {
-                                Group {
-                                    if item.isCollected {
-                                        // Faded when it is a coming evolution (Home); a Pokédex page's family is caught.
-                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: shiny, form: form,
-                                                   sameScale: true, bottomAligned: bottomAligned)
-                                            .opacity(node.state == .future ? 0.4 : 1)
-                                            .saturation(node.state == .future ? 0.6 : 1)
-                                    } else {
-                                        // Silhouette noire (ombre) pour les évolutions non encore obtenues
-                                        SpriteView(speciesID: item.speciesID, size: thumb, shiny: false, form: form,
-                                                   isSilhouette: true, sameScale: true, bottomAligned: bottomAligned)
-                                    }
-                                }
-                                if let names {
-                                    Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
-                                        .font(.system(size: nameFontSize))
-                                        .foregroundStyle(item.isCollected ? .secondary : .tertiary)
-                                        .lineLimit(nameLineLimit)
-                                        .minimumScaleFactor(nameMinimumScaleFactor)
-                                        .multilineTextAlignment(.center)
-                                        .frame(maxWidth: thumb + Self.nameSlack)
-                                }
+                    Group {
+                        // A Pokédex page's evolutions wrap under each other rather than scroll in one row.
+                        if wrapsBranches {
+                            WrappingHStack(spacing: Self.spacing, lineSpacing: 4) {
+                                ForEach(items) { item in branchCell(item, node: node) }
                             }
-                            .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
-                            .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
-                            .hoverTip(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
+                        } else {
+                            HStack(alignment: .top, spacing: Self.spacing) {
+                                ForEach(items) { item in branchCell(item, node: node) }
+                            }
                         }
                     }
                     .id(i)
                 }
             }
         }
+    }
+
+    private func branchCell(_ item: BranchEvolutionItem, node: EvoLineItem) -> some View {
+        VStack(spacing: 1) {
+            Group {
+                if item.isCollected {
+                    // Faded when it is a coming evolution (Home); a Pokédex page's family is caught.
+                    SpriteView(speciesID: item.speciesID, size: thumb, shiny: drawsShiny(item.speciesID),
+                               form: form,
+                               sameScale: true, bottomAligned: bottomAligned)
+                        .opacity(node.state == .future ? 0.4 : 1)
+                        .saturation(node.state == .future ? 0.6 : 1)
+                } else {
+                    // Silhouette noire (ombre) pour les évolutions non encore obtenues
+                    SpriteView(speciesID: item.speciesID, size: thumb, shiny: false, form: form,
+                               isSilhouette: true, sameScale: true, bottomAligned: bottomAligned)
+                }
+            }
+            if let names {
+                Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
+                    .font(.system(size: nameFontSize))
+                    .foregroundStyle(item.isCollected ? .secondary : .tertiary)
+                    .lineLimit(nameLineLimit)
+                    .minimumScaleFactor(nameMinimumScaleFactor)
+                    .multilineTextAlignment(.center)
+                    .frame(maxWidth: thumb + Self.nameSlack)
+            }
+        }
+        .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
+        .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
+        .hoverTip(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
     }
 }
 
@@ -1373,23 +1397,20 @@ struct DexSummaryHeader: View {
                 Text(store.l.dexTotal(store.dexEntries.count))
                     .font(.caption).foregroundStyle(.secondary)
             }
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = store.dexCount(r)
-                        Button { onSelect(r) } label: {
-                            RarityTally(
-                                label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
-                                isSelected: selected == r)
-                        }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)          // 0마리 희귀도는 필터 불가
-                        .hoverTip(store.l.dexFilterHint)
+            // Wrapped rather than scrolled sideways: the last ones were cut with nothing to say so (#183).
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = store.dexCount(r)
+                    Button { onSelect(r) } label: {
+                        RarityTally(
+                            label: store.l.rarityLabel(r), count: count, color: rarityColor(r),
+                            isSelected: selected == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)          // 0마리 희귀도는 필터 불가
+                    .hoverTip(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 }
@@ -1408,6 +1429,7 @@ struct CollectionView: View {
     @State private var selectedRarity: Rarity?
     @State private var searchText = ""
     @State private var shinyOnly = false
+    @State private var favoritesOnly = false
     @State private var evolutionFamily = false
     @State private var dexSort: CompanionStore.DexSortOption = .numberAsc
     @State private var logSort: CompanionStore.CatchLogSortOption = .recentFirst
@@ -1428,6 +1450,7 @@ struct CollectionView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            favoritesOnly: favoritesOnly,
             evolutionFamily: evolutionFamily,
             sort: logSort
         )
@@ -1440,6 +1463,7 @@ struct CollectionView: View {
     private func resetFilters() {
         searchText = ""
         shinyOnly = false
+        favoritesOnly = false
         evolutionFamily = false
         selectedRarity = nil
         dexSort = .numberAsc
@@ -1481,26 +1505,18 @@ struct CollectionView: View {
 
                 if nav.showingCollectionLog {
                     catchLog
-                } else if nav.dexScope != .caught {
-                    FullDexView(store: store, searchText: searchText, missingOnly: nav.dexScope == .missing,
-                                shinyOnly: shinyOnly && nav.dexScope != .missing, evolutionFamily: evolutionFamily,
-                                scope: $nav.dexScope,
-                                onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID })
                 } else {
-                    dexScopePicker
-                    DexGridView(
-                        store: store,
-                        searchText: searchText,
-                        shinyOnly: shinyOnly,
-                        evolutionFamily: evolutionFamily,
-                        sortOption: dexSort,
-                        selectedRarity: $selectedRarity,
-                        returnAnchor: dexReturnAnchor,
-                        onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID },
-                        onResetFilters: resetFilters
-                    )
-                    // The grid kept its own copy of the anchor; a later rebuild (segment switch) starts on page 1.
-                    .onAppear { dexReturnAnchor = nil }
+                    // The three scopes in one layout, by region with the same cells (the owner, 2026-11-18).
+                    FullDexView(store: store, searchText: searchText, missingOnly: nav.dexScope == .missing,
+                                shinyOnly: shinyOnly && nav.dexScope != .missing,
+                                favoritesOnly: favoritesOnly && nav.dexScope != .missing, evolutionFamily: evolutionFamily,
+                                scope: $nav.dexScope, caughtOnly: nav.dexScope == .caught,
+                                rarityFilter: $selectedRarity, sort: nav.dexScope == .caught ? dexSort : .numberAsc,
+                                returnAnchor: dexReturnAnchor.flatMap { anchor in
+                                    store.dexSpecies.first { $0.collectionID == anchor }?.id
+                                },
+                                onReturnAnchorUsed: { dexReturnAnchor = nil },
+                                onSelectSpecies: { sp in nav.dexDetailCollectionID = sp.collectionID })
                 }
             }
             .frame(height: Self.contentHeight)
@@ -1519,6 +1535,8 @@ struct CollectionView: View {
     private var sortsCaught: Bool { navigation.showingCollectionLog || navigation.dexScope == .caught }
     /// Shiny only: individuals, caught species, the whole Pokédex's; the missing species have no shiny.
     private var filtersShiny: Bool { navigation.showingCollectionLog || navigation.dexScope != .missing }
+    /// Favorites only: the liked individuals, the species they went through; the missing species have none.
+    private var filtersFavorites: Bool { filtersShiny }
 
     private var filterToolbar: some View {
         HStack(spacing: 6) {
@@ -1572,6 +1590,32 @@ struct CollectionView: View {
             .buttonStyle(.plain)
             .hoverTip(store.l.filterShinyOnly)
             .accessibilityLabel(store.l.filterShinyOnly)
+            }
+
+            if filtersFavorites {
+            Button {
+                withAnimation(.easeInOut(duration: 0.15)) {
+                    favoritesOnly.toggle()
+                }
+            } label: {
+                // Filled or not says it, not the pink alone.
+                Image(systemName: favoritesOnly ? "heart.fill" : "heart")
+                    .font(.system(size: 12, weight: favoritesOnly ? .bold : .regular))
+                    .foregroundStyle(favoritesOnly ? Color.pink : Color.secondary)
+                    .frame(width: 16, height: 16)
+                    .padding(.horizontal, 6)
+                    .padding(.vertical, 4)
+                    .background(favoritesOnly ? Color.pink.opacity(0.16) : Color(nsColor: .controlBackgroundColor))
+                    .clipShape(RoundedRectangle(cornerRadius: 6))
+                    .overlay(
+                        RoundedRectangle(cornerRadius: 6)
+                            .strokeBorder(favoritesOnly ? Color.pink.opacity(0.6) : Color.secondary.opacity(0.2), lineWidth: 0.5)
+                    )
+            }
+            .buttonStyle(.plain)
+            .hoverTip(store.l.filterFavoritesOnly)
+            .accessibilityLabel(store.l.filterFavoritesOnly)
+            .accessibilityAddTraits(favoritesOnly ? .isSelected : [])
             }
 
             Button {
@@ -1714,6 +1758,7 @@ struct CollectionView: View {
                     .onChange(of: logSort) {
                         withAnimation(.easeInOut(duration: 0.2)) { proxy.scrollTo("dexTop", anchor: .top) }
                     }
+                    .onChange(of: favoritesOnly) { proxy.scrollTo("dexTop", anchor: .top) }
                 }
             }
         }
@@ -1873,7 +1918,7 @@ struct DexScrollPager {
 
 /// Background view that feeds scroll events over its bounds to `onStep`. A local monitor (not a
 /// `scrollWheel(with:)` override) keeps clicks and hover on the cells above it untouched.
-private struct ScrollWheelPager: NSViewRepresentable {
+struct ScrollWheelPager: NSViewRepresentable {
     let onStep: (Int) -> Void
 
     func makeNSView(context: Context) -> PagerView { PagerView() }
@@ -1912,40 +1957,117 @@ struct FullDexView: View {
     let missingOnly: Bool
     /// Only the species caught shiny.
     var shinyOnly = false
+    /// Only the species a liked Pokémon went through.
+    var favoritesOnly = false
     /// The search finds whole evolution families, their missing members included.
     var evolutionFamily = false
     @Binding var scope: PopoverNavigation.DexScope
+    /// Only the species in the Pokédex: "Obtenus", laid out as "Tous" and "Manquants" are (the owner, 2026-11-18).
+    var caughtOnly = false
+    /// The rarity filter, on the three scopes alike.
+    var rarityFilter: Binding<Rarity?> = .constant(nil)
+    private var selectedRarity: Rarity? {
+        get { rarityFilter.wrappedValue }
+        nonmutating set { rarityFilter.wrappedValue = newValue }
+    }
+    /// The caught species' order: by number they stand in their regions, any other order in one grid.
+    var sort: CompanionStore.DexSortOption = .numberAsc
+    /// The species whose page was just closed: the list comes back to it, then `onReturnAnchorUsed` clears it.
+    var returnAnchor: Int? = nil
+    var onReturnAnchorUsed: () -> Void = {}
     let onSelectSpecies: (CompanionStore.DexSpecies) -> Void
     @State private var folded: Set<Int> = []
 
     /// Five to a row, so a sprite stays big enough to tell apart.
     private static let columns = Array(repeating: GridItem(.flexible(), spacing: 4), count: 5)
 
+    /// A species' rarity: its line's, as the totals count it, else its Pokédex record's before the index loads.
+    private func rarity(_ id: Int, _ species: [Int: CompanionStore.DexSpecies], _ lines: [Int: Rarity]?) -> Rarity? {
+        lines?[id] ?? species[id]?.rarity
+    }
+
     var body: some View {
         let species = Dictionary(store.dexSpecies.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         let graduated = store.graduatedSpeciesIDs
         let names = species.mapValues(\.name)
-        let visible = Self.visibleIDs(names: names, missingOnly: missingOnly, query: searchText,
-                                      shinies: shinyOnly ? Set(store.dexSpecies.filter(\.isShiny).map(\.id)) : nil,
+        var kept: Set<Int>? = shinyOnly ? Set(store.dexSpecies.filter(\.isShiny).map(\.id)) : nil
+        if favoritesOnly {
+            let liked = store.favoriteSpeciesIDs
+            kept = kept.map { $0.intersection(liked) } ?? liked
+        }
+        let lines = store.speciesRarities
+        // The scope and the other filters first: the rarity chips count what they would show.
+        let inScope = Self.visibleIDs(names: names, missingOnly: missingOnly, query: searchText, shinies: kept,
                                       family: evolutionFamily)
+            .filter { !caughtOnly || names[$0] != nil }
+        let visible = selectedRarity.map { wanted in inScope.filter { rarity($0, species, lines) == wanted } } ?? inScope
         func shows(_ id: Int) -> Bool { visible.contains(id) }
         return VStack(alignment: .leading, spacing: 6) {
             PillPicker(selection: $scope, options: PopoverNavigation.DexScope.allCases.map { ($0, store.l.dexScope($0)) })
             summary(registered: species.count, graduated: graduated)
-            ScrollView {
-                LazyVStack(alignment: .leading, spacing: 8) {
-                    ForEach(Array(PokemonTypeData.generations.enumerated()), id: \.offset) { index, range in
-                        let ids = range.filter(shows)
-                        if !ids.isEmpty {
-                            region(index + 1, range: range, ids: ids, species: species, graduated: graduated)
+            // Out of each rarity's total: those caught ("Tous", "Obtenus"), or those missing ("Manquants").
+            rarityChips(missingOnly ? inScope : inScope.filter { names[$0] != nil }, species: species, lines: lines)
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        if caughtOnly, sort != .numberAsc {
+                            // Another order than the number: one grid in that order, no regions to cut it.
+                            let ordered = store.sortDexSpecies(visible.compactMap { species[$0] }, by: sort)
+                            LazyVGrid(columns: Self.columns, spacing: 4) {
+                                ForEach(ordered, id: \.id) { sp in
+                                    cell(sp.id, species: sp, isGraduated: graduated.contains(sp.id)).id(sp.id)
+                                }
+                            }
+                            .padding(8)
+                            .background(Color.secondary.opacity(0.06), in: RoundedRectangle(cornerRadius: 10))
+                        } else {
+                            ForEach(Array(PokemonTypeData.generations.enumerated()), id: \.offset) { index, range in
+                                let ids = range.filter(shows)
+                                if !ids.isEmpty {
+                                    region(index + 1, range: range, ids: ids, species: species, graduated: graduated)
+                                }
+                            }
                         }
                     }
+                    .reservesScrollerLane()
                 }
-                .reservesScrollerLane()
+                .frame(maxHeight: .infinity)
+                .task(id: returnAnchor) {
+                    guard let returnAnchor else { return }
+                    // Cleared only once scrolled to: cleared on appear, the wait was cancelled and the scroll ran
+                    // before the grid had its layout, landing mid-page (the owner, 2026-11-18, back from Charizard).
+                    // The lazy cells measured after the first scroll move it, so it scrolls again.
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(returnAnchor, anchor: .center)
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(returnAnchor, anchor: .center)
+                    onReturnAnchorUsed()
+                }
             }
-            .frame(maxHeight: .infinity)
         }
         .task { await store.backfillMissingDexNames() }
+        // The rarities' totals ("120/430") and the missing species' rarity read the hatch index.
+        .task { await store.loadHatchIndex() }
+    }
+
+    /// The rarity filter, as "Obtenus" had it, now on the three scopes: each rarity's species in this scope, out of
+    /// all of that rarity; a click keeps that rarity only, a second one lifts it.
+    private func rarityChips(_ ids: Set<Int>, species: [Int: CompanionStore.DexSpecies], lines: [Int: Rarity]?) -> some View {
+        let totals = store.speciesTotalsByRarity
+        return WrappingHStack(spacing: 4, lineSpacing: 4) {
+            ForEach(rarityDisplayOrder, id: \.self) { r in
+                let count = ids.filter { rarity($0, species, lines) == r }.count
+                Button {
+                    withAnimation(.easeInOut(duration: 0.15)) { selectedRarity = selectedRarity == r ? nil : r }
+                } label: {
+                    RarityTally(label: store.l.rarityLabel(r), count: count, total: totals?[r],
+                                color: rarityColor(r), isSelected: selectedRarity == r)
+                }
+                .buttonStyle(.plain)
+                .disabled(count == 0 && selectedRarity != r)
+                .hoverTip(store.l.dexFilterHint)
+            }
+        }
     }
 
     /// Whether a species shows: the missing ones only when asked, and those the search finds, by number (with or
@@ -2042,7 +2164,7 @@ struct FullDexView: View {
                             let count = range.filter { species[$0]?.rarity == rarity }.count
                             if count > 0 {
                                 HStack(spacing: 3) {
-                                    Circle().fill(rarityColor(rarity)).frame(width: 6, height: 6)
+                                    Circle().fill(rarityColor(rarity)).frame(width: 8, height: 8)
                                     Text("\(count)").font(.caption2.monospacedDigit())
                                 }
                                 .hoverTip(store.l.rarityLabel(rarity))
@@ -2057,7 +2179,7 @@ struct FullDexView: View {
             if !isFolded {
                 LazyVGrid(columns: Self.columns, spacing: 4) {
                     ForEach(ids, id: \.self) { id in
-                        cell(id, species: species[id], isGraduated: graduated.contains(id))
+                        cell(id, species: species[id], isGraduated: graduated.contains(id)).id(id)
                     }
                 }
             }
@@ -2070,12 +2192,12 @@ struct FullDexView: View {
     private func cell(_ id: Int, species: CompanionStore.DexSpecies?, isGraduated: Bool) -> some View {
         let number = String(format: "%03d", id)
         if let species {
+            // The Pokémon its page opens on: shiny in the form caught shiny, as the caught grid drew it.
+            let cover = store.dexCover(for: species)
             Button { onSelectSpecies(species) } label: {
                 VStack(spacing: 2) {
                     // One scale for the whole grid, as on the caught grid: a Charmander smaller than a Charizard.
-                    SpriteView(speciesID: id, size: 42,
-                               shiny: species.isShiny && !PokemonForm.hasForms(speciesID: id), form: species.form,
-                               sameScale: true)
+                    SpriteView(speciesID: id, size: 42, shiny: cover.isShiny, form: cover.form, sameScale: true)
                         .frame(width: 44, height: 44)
                         // A shiny one says so, as on the caught grid.
                         .overlay(alignment: .topTrailing) {
@@ -2083,7 +2205,7 @@ struct FullDexView: View {
                         }
                     // Its rarity in a dot before its number.
                     HStack(spacing: 3) {
-                        Circle().fill(rarityColor(species.rarity)).frame(width: 7, height: 7)
+                        Circle().fill(rarityColor(species.rarity)).frame(width: 8, height: 8)
                         Text(number).font(.system(size: 10, weight: .semibold).monospacedDigit())
                     }
                 }
@@ -2126,6 +2248,7 @@ private struct DexGridView: View {
     let store: CompanionStore
     let searchText: String
     let shinyOnly: Bool
+    let favoritesOnly: Bool
     let evolutionFamily: Bool
     let sortOption: CompanionStore.DexSortOption
     @Binding var selectedRarity: Rarity?
@@ -2147,7 +2270,7 @@ private struct DexGridView: View {
 
     /// `returnAnchor` = the species whose detail page was just closed. The grid opens on its page,
     /// set here rather than in `onAppear`, which would flash page 1 for a frame first.
-    init(store: CompanionStore, searchText: String, shinyOnly: Bool, evolutionFamily: Bool,
+    init(store: CompanionStore, searchText: String, shinyOnly: Bool, favoritesOnly: Bool = false, evolutionFamily: Bool,
          sortOption: CompanionStore.DexSortOption, selectedRarity: Binding<Rarity?>,
          returnAnchor: String?,
          onSelectSpecies: @escaping (CompanionStore.DexSpecies) -> Void,
@@ -2155,6 +2278,7 @@ private struct DexGridView: View {
         self.store = store
         self.searchText = searchText
         self.shinyOnly = shinyOnly
+        self.favoritesOnly = favoritesOnly
         self.evolutionFamily = evolutionFamily
         self.sortOption = sortOption
         _selectedRarity = selectedRarity
@@ -2169,6 +2293,7 @@ private struct DexGridView: View {
             query: searchText,
             rarity: selectedRarity,
             shinyOnly: shinyOnly,
+            favoritesOnly: favoritesOnly,
             evolutionFamily: evolutionFamily,
             sort: sortOption
         )
@@ -2193,6 +2318,7 @@ private struct DexGridView: View {
         }
         .onChange(of: searchText) { page = 0; selectedID = nil }
         .onChange(of: shinyOnly) { page = 0; selectedID = nil }
+        .onChange(of: favoritesOnly) { page = 0; selectedID = nil }
         .onChange(of: evolutionFamily) { page = 0; selectedID = nil }
         .onChange(of: sortOption) { page = 0; selectedID = nil }
         .onChange(of: selectedRarity) { page = 0; selectedID = nil }
@@ -2254,28 +2380,24 @@ private struct DexGridView: View {
             }
             .font(.caption.monospacedDigit()).foregroundStyle(.secondary)
             .lineLimit(1).minimumScaleFactor(0.8)
-            ScrollView(.horizontal, showsIndicators: false) {
-                HStack(spacing: 4) {
-                    ForEach(rarityDisplayOrder, id: \.self) { r in
-                        let count = all.lazy.filter { $0.rarity == r }.count
-                        Button {
-                            withAnimation(.easeInOut(duration: 0.15)) {
-                                selectedRarity = (selectedRarity == r) ? nil : r
-                                page = 0
-                                selectedID = nil
-                            }
-                        } label: {
-                            RarityTally(label: store.l.rarityLabel(r), count: count, total: totals?[r],
-                                        color: rarityColor(r), isSelected: selectedRarity == r)
+            WrappingHStack(spacing: 4, lineSpacing: 4) {
+                ForEach(rarityDisplayOrder, id: \.self) { r in
+                    let count = all.lazy.filter { $0.rarity == r }.count
+                    Button {
+                        withAnimation(.easeInOut(duration: 0.15)) {
+                            selectedRarity = (selectedRarity == r) ? nil : r
+                            page = 0
+                            selectedID = nil
                         }
-                        .buttonStyle(.plain)
-                        .disabled(count == 0)
-                        .hoverTip(store.l.dexFilterHint)
+                    } label: {
+                        RarityTally(label: store.l.rarityLabel(r), count: count, total: totals?[r],
+                                    color: rarityColor(r), isSelected: selectedRarity == r)
                     }
+                    .buttonStyle(.plain)
+                    .disabled(count == 0)
+                    .hoverTip(store.l.dexFilterHint)
                 }
-                .fixedSize(horizontal: true, vertical: false)
             }
-            .fixedSize(horizontal: false, vertical: true)
         }
     }
 
@@ -2370,6 +2492,7 @@ struct PokemonDetailView: View {
     /// The look the header shows, picked among the costumes (`CostumeEntry.key`, `plainLook` for none); nil shows the
     /// individual's own.
     @State private var shownCostume: String?
+    @State private var tab: DetailTab
     private static let plainLook = ""
 
     /// Opens another page of the family (the target, then this page as it is shown, for Back).
@@ -2381,13 +2504,14 @@ struct PokemonDetailView: View {
          onBack: @escaping () -> Void, selectedShiny: Bool? = nil,
          spriteStore: SpriteStore = .shared, initialForm: PokemonForm? = nil,
          onOpenDexPage: ((PopoverNavigation.DexPage, PopoverNavigation.DexPage) -> Void)? = nil,
-         onOpenCostumes: (() -> Void)? = nil) {
+         onOpenCostumes: (() -> Void)? = nil, initialTab: DetailTab = .individual) {
         self.store = store
         self.species = species
         self.onBack = onBack
         self.spriteStore = spriteStore
         self.onOpenDexPage = onOpenDexPage
         self.onOpenCostumes = onOpenCostumes
+        _tab = State(initialValue: initialTab)
         _selectedShiny = State(initialValue: selectedShiny)
         // A family page opens in the form it was seen in, when this species was caught in it (`displayedSpecies`).
         _selectedForm = State(initialValue: initialForm.flatMap { PokemonForm.resolved(speciesID: species.id, form: $0) })
@@ -2423,6 +2547,37 @@ struct PokemonDetailView: View {
         individuals.first { $0.id == selectedInstanceID } ?? individuals.first
     }
 
+    /// The page's tabs, under the identity and the evolution line.
+    enum DetailTab: Hashable, CaseIterable { case individual, battle, species, moves, costumes }
+
+    /// The individual whose dungeon moves the Battle tab edits: one graduated as this species, able to join a team.
+    private var loopIndividual: DexEntry? {
+        guard let individual, individual.finalID == species.id,
+              store.dungeonCandidates.contains(where: { $0.id == individual.id }) else { return nil }
+        return individual
+    }
+
+    /// Only the tabs with something to show: no Battle tab without a team member, no Costumes tab without costumes.
+    private var shownTabs: [DetailTab] {
+        DetailTab.allCases.filter { tab in
+            switch tab {
+            case .battle: loopIndividual != nil
+            case .costumes: !speciesCostumes.isEmpty
+            default: true
+            }
+        }
+    }
+
+    private func tabTitle(_ tab: DetailTab) -> String {
+        switch tab {
+        case .individual: store.l.dexTabIndividual
+        case .battle: store.l.dexTabBattle
+        case .species: store.l.dexTabSpecies
+        case .moves: store.l.dexTabMoves
+        case .costumes: store.l.dexTabCostumes
+        }
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack {
@@ -2442,29 +2597,49 @@ struct PokemonDetailView: View {
                     // had no way back to its usual colors.
                     if displayedSpecies.isShiny { appearancePicker }
                     identityHeader
-                    if individuals.count > 1 { individualPicker }
-                    if !speciesCostumes.isEmpty { costumeSection }
-                    if individuals.isEmpty {
-                        Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
+                    // The rest in tabs under the identity: the page ran over six screens (#183).
+                    let tabs = shownTabs
+                    if tabs.count > 1 {
+                        PillPicker(selection: Binding(get: { tabs.contains(tab) ? tab : tabs[0] }, set: { tab = $0 }),
+                                   options: tabs.map { ($0, tabTitle($0)) })
                     }
+                    let current = tabs.contains(tab) ? tab : tabs[0]
+                    if current == .individual {
+                        if individuals.count > 1 { individualPicker }
+                        if individuals.isEmpty {
+                            Text(store.l.dexAppearancePreview).font(.callout).foregroundStyle(.secondary)
+                        }
+                    }
+                    if current == .costumes { costumeSection }
                     // The displayed form's own stats, size, abilities and moves (an Alolan Vulpix's, not a Kanto one's).
-                    if let details = store.pokemonDetails(speciesID: species.id, form: displayedSpecies.form) {
-                        if let individual, let profile = individual.profile {
-                            individualSection(entry: individual, profile: profile, details: details)
-                        } else {
+                    if current == .costumes {
+                        EmptyView()
+                    } else if let details = store.pokemonDetails(speciesID: species.id, form: displayedSpecies.form) {
+                        switch current {
+                        case .individual:
+                            if let individual, let profile = individual.profile {
+                                individualSection(entry: individual, profile: profile, details: details)
+                            } else {
+                                baseStatsSection(details)
+                            }
+                            if let individual, let record = individual.raising {
+                                RaisingRecordCard(record: record, entry: individual, store: store)
+                            }
+                        case .battle:
+                            // R4: the moves it fights with in the dungeons, as on the team screen.
+                            if let individual = loopIndividual {
+                                LoopEditor(store: store, entry: individual, dungeon: nil, editingSlot: $editingLoopSlot,
+                                           asCard: true)
+                                    .onChange(of: individual.id) { _, _ in editingLoopSlot = nil }
+                            }
+                        case .species:
+                            speciesSection(details)
                             baseStatsSection(details)
+                        case .moves:
+                            movesSection(details)
+                        case .costumes:
+                            EmptyView()
                         }
-                        // R4: the moves it fights with in the dungeons, as on the team screen.
-                        if let individual, individual.finalID == species.id,
-                           store.dungeonCandidates.contains(where: { $0.id == individual.id }) {
-                            LoopEditor(store: store, entry: individual, dungeon: nil, editingSlot: $editingLoopSlot, asCard: true)
-                                .onChange(of: individual.id) { _, _ in editingLoopSlot = nil }
-                        }
-                        if let individual, let record = individual.raising {
-                            RaisingRecordCard(record: record, entry: individual, store: store)
-                        }
-                        speciesSection(details)
-                        movesSection(details)
                     } else if store.failedToLoadPokemonDetails(speciesID: species.id, form: displayedSpecies.form) {
                         VStack(spacing: 8) {
                             Text(store.l.pokemonDetailsUnavailable).foregroundStyle(.secondary)
@@ -2709,10 +2884,15 @@ struct PokemonDetailView: View {
                     if displayedShiny { Text("✨ \(store.l.dexShinyLabel)").font(.callout) }
                     if let individual, store.isActiveDexEntry(individual) { Text(store.l.dexRaising).font(.callout).foregroundStyle(Color.accentColor) }
                     let isRepresentative = store.isRepresentative(species)
-                    RepresentativeFooterButton(localization: store.l,
-                                               isRepresentative: isRepresentative) {
-                        _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
-                                                             form: species.form)
+                    HStack(spacing: 6) {
+                        RepresentativeFooterButton(localization: store.l,
+                                                   isRepresentative: isRepresentative) {
+                            _ = store.setRepresentativeSpeciesID(isRepresentative ? nil : species.id,
+                                                                 form: species.form)
+                        }
+                        if store.canFavorite(speciesID: species.id) || store.isFavorite(speciesID: species.id) {
+                            favoriteButton
+                        }
                     }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
@@ -2821,14 +3001,16 @@ struct PokemonDetailView: View {
     @ViewBuilder
     private func familyLine(_ shown: CompanionStore.DexSpecies) -> some View {
         let family = store.dexFamily(speciesID: shown.id, form: shown.form)
-        if !family.nodes.isEmpty {
+        let line = Self.lineWithoutPage(family.nodes)
+        if !line.isEmpty {
             let dex = store.dexSpecies
             // The species itself is the page already open.
             let links = Dictionary(dex.filter { $0.id != shown.id }.map { ($0.id, $0.collectionID) },
                                    uniquingKeysWith: { first, _ in first })
             let names = Dictionary(dex.map { ($0.id, $0.name) }, uniquingKeysWith: { first, _ in first })
-            EvoLineView(nodes: family.nodes, mysteryLabel: store.l.unknownNextEvolution, language: store.language,
-                        thumb: 34, shiny: displayedShiny, names: names,
+            EvoLineView(nodes: line, mysteryLabel: store.l.unknownNextEvolution, language: store.language,
+                        thumb: 34, shiny: displayedShiny,
+                        shinyStages: store.dexFamilyShinies(family), wrapsBranches: true, names: names,
                         maxWidth: PopoverMetrics.scrollContentWidth - Design.cardPadding * 2, form: family.form,
                         nameFontSize: 10, dexLinks: links,
                         onOpenDexEntry: { target in
@@ -2836,6 +3018,11 @@ struct PokemonDetailView: View {
                                            .init(collectionID: species.collectionID, form: shown.form))
                         })
         }
+    }
+
+    /// The page's family without the page's own species: the header shows it already (the owner, 2026-11-17).
+    nonisolated static func lineWithoutPage(_ nodes: [EvoLineItem]) -> [EvoLineItem] {
+        nodes.filter { $0.state != .current }
     }
 
     private var appearancePicker: some View {
@@ -2865,10 +3052,33 @@ struct PokemonDetailView: View {
         return "#\(index + 1) · \(appearance)\(costume) · Lv. \(entry.profile?.level ?? 5) · \(date)"
     }
 
+    /// Likes this species, or unlikes it: the ♥ filter of the Pokédex, the catch log, the teams and the Capsules.
+    private var favoriteButton: some View {
+        let liked = store.isFavorite(speciesID: species.id)
+        let label = liked ? store.l.favoriteRemove : store.l.favoriteAdd
+        return Button {
+            withAnimation(.easeInOut(duration: 0.15)) { store.toggleFavorite(speciesID: species.id) }
+        } label: {
+            // Filled or not says it, not the pink alone.
+            Image(systemName: liked ? "heart.fill" : "heart")
+                .font(.system(size: 15, weight: .semibold))
+                .foregroundStyle(liked ? Color.pink : Color.secondary)
+                .frame(width: 28, height: 24)
+                .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .hoverTip(label)
+        .accessibilityLabel(label)
+        .accessibilityAddTraits(liked ? .isSelected : [])
+    }
+
     private func individualSection(entry: DexEntry, profile: PokemonProfile,
                                    details: PokemonDetails) -> some View {
         VStack(alignment: .leading, spacing: 8) {
-            detailTitle(store.l.pokemonIndividual)
+            HStack {
+                detailTitle(store.l.pokemonIndividual)
+                Spacer()
+            }
             HStack(spacing: 12) {
                 valuePair(store.l.level, "\(profile.level)")
                 valuePair(store.l.gender, store.l.genderLabel(profile.gender))
@@ -3109,7 +3319,7 @@ private struct DexSpeciesCell: View {
 
     private var typeDots: some View {
         HStack(spacing: 3) {
-            ForEach(types.prefix(2), id: \.self) { type in Circle().fill(type.color).frame(width: 7, height: 7) }
+            ForEach(types.prefix(2), id: \.self) { type in Circle().fill(type.color).frame(width: 9, height: 9) }
         }
     }
 
@@ -3195,6 +3405,19 @@ private struct DexEntryRow: View {
     /// 카드 안쪽 여백. 진화 라인이 쓸 수 있는 폭 계산과 단일 소스를 공유한다.
     private static let cardPadding: CGFloat = 8
 
+    /// When it graduated, was sent off, or hatched for the one being raised, then how long ago (#183).
+    private var whenLine: String? {
+        let l = store.l
+        let locale = store.language.displayLocale
+        func stamp(_ date: Date) -> String {
+            date.formatted(.dateTime.day().month().hour().minute().locale(locale)) + " · "
+                + date.formatted(.relative(presentation: .named).locale(locale))
+        }
+        if store.isActiveDexEntry(entry) { return entry.raising.map { l.logHatchedOn(stamp($0.hatchedAt)) } }
+        guard let caughtAt = entry.caughtAt else { return nil }
+        return entry.isReleased ? l.logReleasedOn(stamp(caughtAt)) : l.logGraduatedOn(stamp(caughtAt))
+    }
+
     var body: some View {
         // 저장분 우선(즉시·언어대응), 없으면 async 로 채운 resolved 사용.
         let names = store.dexStoredChainNames(entry) ?? (resolved.isEmpty ? nil : resolved)
@@ -3227,6 +3450,10 @@ private struct DexEntryRow: View {
                         Text("✨").font(.system(size: 10))
                             .accessibilityLabel(store.l.dexShinyLabel)
                     }
+                    if store.isFavorite(entry) {
+                        Image(systemName: "heart.fill").font(.system(size: 10)).foregroundStyle(Color.pink)
+                            .accessibilityLabel(store.l.favoriteLabel)
+                    }
                 }
                 .frame(maxWidth: .infinity, alignment: .leading)
                 if let nature = entry.nature {
@@ -3241,8 +3468,8 @@ private struct DexEntryRow: View {
                         maxWidth: PopoverMetrics.scrollContentWidth - Self.cardPadding * 2, form: entry.spriteForm(),
                         nameFontSize: 11, nameLineLimit: 2, nameMinimumScaleFactor: 1,
                         dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry, bottomAligned: true)
-            if let caughtAt = entry.caughtAt {
-                Text(caughtAt, style: .relative).font(.system(size: 11)).foregroundStyle(.secondary)
+            if let when = whenLine {
+                Text(when).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(2)
             }
             if let record = entry.raising, let summary = RaisingRecordCard.summary(record, entry: entry, store: store) {
                 Text(summary).font(.system(size: 11)).foregroundStyle(.secondary).monospacedDigit()

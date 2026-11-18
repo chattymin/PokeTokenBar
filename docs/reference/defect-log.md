@@ -1529,6 +1529,15 @@ read_when:
 
 ## 표시·UI
 
+- **One individual's shiny is not a family's.** A shiny Eevee's Pokédex page drew every Eeveelution shiny, none of
+  them caught shiny (the owner, 2026-11-17): `EvoLineView` took one `shiny` flag, right for an individual's own path
+  (the catch log's line, every stage that individual went through), and the page passed it for the species' whole
+  family, siblings included. **Why it was missed:** `DexFamilyTests` checked which members were caught, never how
+  they were drawn, and the flag lived in the view. The page now draws shiny only `CompanionStore.dexFamilyShinies`,
+  the members caught shiny in the line's form (`EvoLineView.shinyStages`); guard
+  `DexFamilyTests.testTheFamilyIsShinyOnlyWhereCaughtShiny` (fault: all members shiny, 4 failures). Sweep: Home's
+  track and the catch log draw one individual's path (right); the costume cells already ask each costume.
+
 - **A menu installed at launch is installed again where it is used.** ⌘V still pasted nothing in the session key's
   field after #118 (a player, 2026-11-13): the Edit menu was installed at launch, and SwiftUI swapped the app's main
   menu for its own (a lone "Enter Full Screen") as soon as the popover's content showed up, so the key found no Paste
@@ -1661,6 +1670,11 @@ read_when:
   상태(`DexGridView.returnAnchor`)로 둔다.
   **부류 스윕:** 팝오버에서 목록→상세→Back 구조는 컬렉션 탭뿐이다. 설정과 리캡은 화면 전체를 덮고 닫으면
   Home 맨 위로 돌아오는 게 의도한 동작이라 대상이 아니다.
+  **Same class, 18/11 (#183):** the Achievements list, one lazy list again, scrolled once to the card Home opened (the
+  Excavation, after every stone): local runs passed, CI read offset 0 (`AchievementsRenderingTests
+  .testAnAchievementOpenedFromHomeIsScrolledTo`), CPU load could not reproduce it locally. It now waits a moment,
+  scrolls, then scrolls again, as the Pokédex's way back does. **Sweep:** every `proxy.scrollTo` run at appear
+  (catch log, Pokédex return anchor, Achievements) scrolls twice; Settings waits 80 ms; the others follow a click.
   **회귀 가드:** `DexBackNavigationTests`는 실제 `CollectionView`를 창에 띄우고 상세→Back 왕복 후 렌더된
   글자를 Vision으로 읽는다. 앵커 저장, 1회 소비, 로그 앵커를 각각 지우면 실패한다. 격자 앵커를 무조건 쓰게
   되돌리면 `testBackToTheLogLeavesTheGridOnItsFirstPage`가 실패한다. 앵커로 종을 다시 선택하게 하면
@@ -2084,6 +2098,35 @@ read_when:
   language.
 
 ## 에너지 (상시 표시 애니메이션)
+
+- **Every stream of usage writes takes the coalesced write.** The fix above left a second path: while a team
+  explores, `feedExpedition` stored each step with `persist()`, a plain `save()`, so every live read rewrote the
+  1.5 MB save again (seen on the owner's Mac on 18/11, an expedition under way). **Why it was missed:** the sweep
+  listed the direct `save()` calls by caller and judged `persist()` a player's action; it is also the dungeon's walk.
+  A quiet step (no new log line, same phase) now waits `usageSaveGap`; a floor, a battle, a find or the end is written
+  at once. Guard: `DungeonStoreTests.testAQuietStepWaitsForTheUsageWriteAndAnEventDoesNot` (fault: 2 failures).
+  Sweep: grep every `save()` / `persist()` reachable from `update(todayTokensByProvider:)`; the other ones follow an
+  event (hatch, evolution, graduation, candy ledger change).
+- **What the popover reads at each opening is kept until the state changes.** The popover is rebuilt at each opening
+  (it is freed when closed, for the idle CPU), and its tab bar asked `unclaimedAchievementsCount`: every achievement
+  counted again, each form goal rebuilding `GraduatedForms` over the whole Pokédex. On the owner's save, 34 ms of
+  Home's 55 ms per opening in a debug build (the owner, 18/11: "l'app lag un petit peu quand on l'affiche").
+  **Why it was missed:** the earlier pass cached the tally per draw of the Achievements tab, not across openings,
+  and `isUnlocked` handed the state on (`in: s ?? state`), so `formProgress` never saw the store's own state and
+  always rescanned. The tallies and the forms index are now cached until the state changes (`achievementTalliesCache`,
+  `graduatedFormsCache`): Home 55 to 18 ms, Achievements 169 to 51 ms, a fresh tally 34 to 9 ms. Guards:
+  `FormAchievementsTests.testTheAchievementCountFollowsAGraduation` and `CollectorItemsTests
+  .testCompletingTheGroupUnlocksTheAchievement` (faults: each cache left uncleared fails). Sweep: the other
+  `collectedForms(graduatedOnly: true)` in a loop (`goals`) reads the index too; what remains of an opening is
+  SwiftUI's layout of the Pokédex grid.
+- **A coalesced write must be the path the app takes.** `saveUsage` was to write a usage update at most every 15 s,
+  yet `applyUsage` ended on a plain `save()` once the evolution line was loaded, which it always is in the app: each
+  live read (every few seconds while Claude writes) encoded and wrote the whole 1.5 MB save, about 100 ms each, most of
+  #182's 3 % CPU (seven writes in 110 s on the owner's Mac). **Why it was missed:** `CompanionUsageSaveTests` built its
+  store and updated at once, before the line had loaded, so it took the early `guard` that did wait. Token growth now
+  waits its gap; an evolution, a graduation or a Rare Candy still writes at once. Guards:
+  `testUsageWritesWaitWithTheLineLoaded` and `testAnEvolutionIsWrittenAtOnce` (faults 2/2). Sweep: the other direct
+  `save()` calls follow a player's action or a ledger change (candies, profiles, egg prefetch), not the usage stream.
 
 - **절전용 정지 상태는 짝 알림 하나에만 복구를 맡기지 마라.** `screensDidSleep` 이 폴링 타이머를 끄고
   `screensDidWake` 만 되살렸다. wake 알림을 놓치면 폴링이 영영 멈추고, 자정 `NSCalendarDayChanged` 갱신이

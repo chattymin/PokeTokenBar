@@ -144,7 +144,7 @@ final class BirthdayGiftTests: XCTestCase {
         }
         XCTAssertFalse(ItemKind.birthdayEgg.isAchievement)
         XCTAssertNil(ItemKind.birthdayEgg.shopPrice, "never sold")
-        XCTAssertEqual(BagView.Section.of(.birthdayEgg), .items)
+        XCTAssertEqual(BagView.Section.of(.birthdayEgg), .raising)
     }
 
     /// A new date after a gift never brings a second egg within a year. A December 30 gift claimed on January 2

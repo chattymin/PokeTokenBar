@@ -339,7 +339,7 @@ final class LiveUsageTests: XCTestCase {
 /// waits with are written by the next write of any kind, and at quit.
 @MainActor
 final class CompanionUsageSaveTests: XCTestCase {
-    private func store() throws -> (CompanionStore, URL) {
+    private func store(tree: EvoNode = EvoNode(speciesID: 1, children: [])) throws -> (CompanionStore, URL) {
         var st = CompanionState()
         st.installBaselineSet = true
         st.lastDate = LocalUsageReader.todayKey()
@@ -347,8 +347,7 @@ final class CompanionUsageSaveTests: XCTestCase {
         let url = FileManager.default.temporaryDirectory.appendingPathComponent("usage-save-\(UUID().uuidString).json")
         try JSONEncoder().encode(st).write(to: url)
         addTeardownBlock { try? FileManager.default.removeItem(at: url) }
-        let s = CompanionStore(provider: StubProvider(value: EvoLine(baseID: 1, tree: EvoNode(speciesID: 1, children: []),
-                                                                    rarity: .common, names: [:])),
+        let s = CompanionStore(provider: StubProvider(value: EvoLine(baseID: 1, tree: tree, rarity: .common, names: [:])),
                                fileURL: url, rng: SeededRNG(seed: 1))
         return (s, url)
     }
@@ -393,5 +392,39 @@ final class CompanionUsageSaveTests: XCTestCase {
         let first = s.savesWritten
         update(s, 2_000)
         XCTAssertEqual(s.savesWritten, first + 1)
+    }
+
+    /// A usage update loads the line, as the app's first refresh does.
+    private func lineLoaded(_ s: CompanionStore) async throws {
+        update(s, 0)
+        for _ in 0..<100 where s.currentLine == nil { try await Task.sleep(for: .milliseconds(20)) }
+        XCTAssertNotNil(s.currentLine)
+    }
+
+    /// As in the app, the line loaded: tokens' growth waits its gap too (#182: each live read wrote the whole save, the
+    /// test above ran before the line had loaded and took the only path that waited).
+    func testUsageWritesWaitWithTheLineLoaded() async throws {
+        let (s, url) = try store()
+        try await lineLoaded(s)
+        s.usageSaveGap = 60
+        update(s, 1_000)
+        let first = s.savesWritten
+        update(s, 2_000)
+        update(s, 3_000)
+        XCTAssertEqual(s.savesWritten, first, "token growth waits its gap")
+        XCTAssertNotEqual(try saved(url), s.state)
+    }
+
+    /// An evolution is written at once, within the gap.
+    func testAnEvolutionIsWrittenAtOnce() async throws {
+        let (s, url) = try store(tree: EvoNode(speciesID: 1, children: [EvoNode(speciesID: 2, children: [EvoNode(speciesID: 3, children: [])])]))
+        try await lineLoaded(s)
+        s.usageSaveGap = 60
+        update(s, 1_000)
+        let first = s.savesWritten
+        update(s, 5_000_000_000)
+        XCTAssertTrue((s.state.active?.stageIndex ?? 0) > 0 || !s.state.dex.isEmpty, "it evolved or graduated")
+        XCTAssertEqual(s.savesWritten, first + 1)
+        XCTAssertEqual(try saved(url), s.state)
     }
 }

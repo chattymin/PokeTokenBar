@@ -87,7 +87,7 @@ struct CollectionStatsScreen: View {
             GridRow {
                 Color.clear.frame(width: Self.label, height: 28)
                 ForEach(types, id: \.self) { type in
-                    Text(short(type, l)).font(.system(size: 7, weight: .bold))
+                    Text(short(type, l)).font(.system(size: 9, weight: .bold))
                         .rotationEffect(.degrees(-90)).fixedSize()
                         .frame(width: Self.cell, height: 28)
                         .background(type.color.opacity(selected == .type(type) ? 0.75 : 0.35))
@@ -98,7 +98,7 @@ struct CollectionStatsScreen: View {
             }
             ForEach(1...CollectionStats.generationCount, id: \.self) { generation in
                 GridRow {
-                    Text(l.dexStatsGenerationShort(generation)).font(.system(size: 8, weight: .bold))
+                    Text(l.dexStatsGenerationShort(generation)).font(.system(size: 9, weight: .bold))
                         .frame(width: Self.label, height: Self.cell)
                         .background(Color.secondary.opacity(selected == .generation(generation) ? 0.4 : 0.15))
                         .contentShape(Rectangle())

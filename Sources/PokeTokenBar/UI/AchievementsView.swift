@@ -26,6 +26,8 @@ struct AchievementsView: View {
     }
 
     @State private var selectedCategory: AchievementCategory
+    /// The card to scroll to (`scrollTarget`), nil once the list is there.
+    @State private var scrollTarget: ItemKind?
     /// The achievement opened from Home, lit for a moment.
     @State private var litItem: ItemKind?
 
@@ -84,24 +86,53 @@ struct AchievementsView: View {
         return ready > 0 ? "\(title) ●\(ready)" : title
     }
 
+    // MARK: The list
+
+    /// A section's cards in its order, all in one list: the Excavation, which is not a stone, after every stone.
+    static func listed(_ items: [ItemKind], _ category: AchievementCategory) -> [ItemKind] {
+        guard category == .evolutionStones, items.contains(.excavation) else { return items }
+        return items.filter { $0 != .excavation } + [.excavation]
+    }
+
+    /// A reward ready to claim on this achievement: one of its regions or steps, or the item itself.
+    static func isReady(_ kind: ItemKind, _ store: CompanionStore) -> Bool {
+        if kind.isRegional { return store.regionTiers(kind).contains(where: \.isReady) }
+        return !store.isClaimed(kind) && store.isUnlocked(kind)
+    }
+
+    /// The card a section's list scrolls to: the achievement Home opened, else the first holding a reward ready (the
+    /// claim banner's link), nil when there is none.
+    static func scrollTarget(_ items: [ItemKind], focus: ItemKind?, store: CompanionStore) -> ItemKind? {
+        if let focus, items.contains(focus) { return focus }
+        return items.first { isReady($0, store) }
+    }
+
     var body: some View {
         let l = store.l
-        // Counted once per draw, for the header, the tabs, the banner and the progress line.
+        // Counted once per draw, for the tabs, the banner and the progress line.
         let tallies = store.achievementTallies()
         let ready = Self.readyCounts(tallies.byGroup)
-        VStack(alignment: .leading, spacing: 10) {
+        let items = Self.listed(store.achievementItems(in: selectedCategory.collectorGroup), selectedCategory)
+        VStack(alignment: .leading, spacing: 6) {
             header(tallies.all, ready: ready)
 
             PillPicker(selection: $selectedCategory,
                        options: AchievementCategory.allCases.map { ($0, Self.tabTitle($0, ready: ready[$0] ?? 0, l)) })
 
-            categoryProgress(tallies.byGroup[selectedCategory.collectorGroup] ?? .init(), l)
+            VStack(alignment: .leading, spacing: 2) {
+                categoryProgress(tallies.byGroup[selectedCategory.collectorGroup] ?? .init(), l)
+                if let intro = intro(selectedCategory, l) {
+                    Text(intro)
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                        .fixedSize(horizontal: false, vertical: true)
+                }
+            }
 
             ScrollViewReader { proxy in
                 ScrollView {
                     // Lazy: a section mounts the cards it shows, not its ninety sprites at each change of section.
                     LazyVStack(alignment: .leading, spacing: 8) {
-                        let items = store.achievementItems(in: selectedCategory.collectorGroup)
                         ForEach(items, id: \.self) { kind in
                             AchievementCard(store: store, nav: nav, kind: kind)
                                 .overlay {
@@ -115,19 +146,55 @@ struct AchievementsView: View {
                     }
                     .reservesScrollerLane()
                 }
-                .task {
-                    // Home opened one achievement: scrolled to and lit, then the light fades.
-                    guard let focus = nav.achievementFocus else { return }
-                    nav.achievementFocus = nil
-                    proxy.scrollTo(focus, anchor: .top)
-                    litItem = focus
-                    try? await Task.sleep(for: .seconds(2))
-                    withAnimation(.easeOut(duration: 0.6)) { litItem = nil }
+                // The card asked for (Home's, the banner's), scrolled to once the section's list is there.
+                .task(id: scrollTarget) {
+                    guard let target = scrollTarget else { return }
+                    // As the Pokédex's way back: scrolled at once, the lazy list had no layout yet on a slower Mac
+                    // (CI, 18/11) and stayed at its top; the cards measured after the first scroll move it, so twice.
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(target, anchor: .top)
+                    do { try await Task.sleep(for: .milliseconds(60)) } catch { return }
+                    proxy.scrollTo(target, anchor: .top)
+                    scrollTarget = nil
                 }
+                // Each section opens at its top.
+                .id(selectedCategory)
             }
             // No height of its own: the list takes what the header, banner and picker leave of the height.
         }
         .frame(height: height)
+        .task {
+            // Home opened one achievement: scrolled to and lit, then the light fades.
+            guard let focus = nav.achievementFocus else { return }
+            nav.achievementFocus = nil
+            scrollTarget = Self.scrollTarget(items, focus: focus, store: store)
+            litItem = focus
+            try? await Task.sleep(for: .seconds(2))
+            withAnimation(.easeOut(duration: 0.6)) { litItem = nil }
+        }
+    }
+
+    /// The first card of `category` holding a reward ready: where the claim banner leads.
+    private func firstReward(_ category: AchievementCategory) -> ItemKind? {
+        Self.scrollTarget(Self.listed(store.achievementItems(in: category.collectorGroup), category), focus: nil,
+                          store: store)
+    }
+
+    /// Said once above a section whose cards all say the same: the stones' eggs and goal, the badges' regions. The
+    /// cards no longer repeat it.
+    private func intro(_ category: AchievementCategory, _ l: L) -> String? {
+        switch category {
+        case .evolutionStones:
+            let pokemon = ItemKind.leafStone.unlock.flatMap { unlock -> Int? in
+                if case .species(let goals) = unlock { return goals.first?.needed }
+                return nil
+            } ?? 3
+            return l.achievementsStonesIntro(eggs: ItemKind.leafStone.achievementRewardCount, pokemon: pokemon)
+        case .gymBadges:
+            return l.achievementsBadgesIntro(CollectorBonus.badgeRegionBonus * 100)
+        case .legendaryArtifacts, .forms:
+            return nil
+        }
     }
 
     /// Progress of the section on screen ("1 of 10 completed"), and what counts: graduated Pokémon, not the one
@@ -147,58 +214,52 @@ struct AchievementsView: View {
         }.joined(separator: ", ")
     }
 
+    /// The rewards ready, where they wait and "Claim all". The whole count ("88/298") is on the Bag's switch above.
+    @ViewBuilder
     private func header(_ all: CompanionStore.AchievementTally, ready: [AchievementCategory: Int]) -> some View {
         let l = store.l
-        let claimed = all.claimed
-        let total = all.total
         let unclaimed = all.ready
-
-        return VStack(alignment: .leading, spacing: 6) {
-            // No title: the Bag's switch above names the page.
-            Text(l.achievementsProgress(claimed, total))
-                .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
-                .monospacedDigit()
-
-            if unclaimed > 0 {
-                HStack(spacing: 8) {
-                    // Says where the rewards wait and takes you there: each tap opens the next section with one.
-                    Button {
-                        if let next = Self.nextCategoryWithRewards(after: selectedCategory, ready: ready) {
-                            selectedCategory = next
-                        }
-                    } label: {
-                        HStack(spacing: 6) {
-                            Image(systemName: "gift.fill")
-                                .font(.caption)
-                            Text(l.readyToClaimSummary(unclaimed, readyBreakdown(ready, l)))
-                                .font(.caption.weight(.semibold))
-                                .multilineTextAlignment(.leading)
-                                .fixedSize(horizontal: false, vertical: true)
-                            Spacer(minLength: 4)
-                            Image(systemName: "chevron.right")
-                                .font(.caption2.weight(.bold))
-                        }
-                        .contentShape(Rectangle())
+        if unclaimed > 0 {
+            HStack(spacing: 8) {
+                // Says where the rewards wait and takes you there: each tap opens the next section with one, scrolled
+                // to its card.
+                Button {
+                    if let next = Self.nextCategoryWithRewards(after: selectedCategory, ready: ready) {
+                        selectedCategory = next
+                        // Also when the section stays: its reward may wait further down (the Excavation's).
+                        scrollTarget = firstReward(next)
                     }
-                    .buttonStyle(.plain)
-
-                    Button(l.claimAll) { store.claimAllAchievements() }
-                        .buttonStyle(.plain)
-                        .font(.caption.weight(.bold))
-                        .foregroundStyle(Color.accentColor)
-                        .lineLimit(1)
-                        .fixedSize()
-                        .padding(.horizontal, 8)
-                        .padding(.vertical, 3)
-                        .background(Capsule().fill(.white))
+                } label: {
+                    HStack(spacing: 6) {
+                        Image(systemName: "gift.fill")
+                            .font(.caption)
+                        Text(l.readyToClaimSummary(unclaimed, readyBreakdown(ready, l)))
+                            .font(.caption.weight(.semibold))
+                            .multilineTextAlignment(.leading)
+                            .fixedSize(horizontal: false, vertical: true)
+                        Spacer(minLength: 4)
+                        Image(systemName: "chevron.right")
+                            .font(.caption2.weight(.bold))
+                    }
+                    .contentShape(Rectangle())
                 }
-                .foregroundStyle(.white)
-                .padding(.horizontal, 10)
-                .padding(.vertical, 6)
-                .background(Color.accentColor)
-                .clipShape(RoundedRectangle(cornerRadius: 8))
+                .buttonStyle(.plain)
+
+                Button(l.claimAll) { store.claimAllAchievements() }
+                    .buttonStyle(.plain)
+                    .font(.caption.weight(.bold))
+                    .foregroundStyle(Color.accentColor)
+                    .lineLimit(1)
+                    .fixedSize()
+                    .padding(.horizontal, 8)
+                    .padding(.vertical, 3)
+                    .background(Capsule().fill(.white))
             }
+            .foregroundStyle(.white)
+            .padding(.horizontal, 10)
+            .padding(.vertical, 6)
+            .background(Color.accentColor)
+            .clipShape(RoundedRectangle(cornerRadius: 8))
         }
     }
 }
@@ -222,7 +283,18 @@ private struct AchievementCard: View {
     private var readyTiers: Int { store.regionTiers(kind).filter(\.isReady).count }
 
     var body: some View {
-        let l = store.l
+        if kind.stoneType != nil {
+            stoneRow(store.l)
+        } else {
+            card(store.l)
+        }
+    }
+
+    /// The section's intro says it for every stone and every badge but the Plain Badge (Normal, which no type is
+    /// weak to): their cards no longer repeat it.
+    private var showsDescription: Bool { kind.badgeType == nil || kind == .plainBadge }
+
+    private func card(_ l: L) -> some View {
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .top, spacing: 10) {
                 ItemIconView(kind: kind, size: 30)
@@ -247,16 +319,18 @@ private struct AchievementCard: View {
                         statusAction(l)
                     }
 
-                    Text(l.itemDescription(kind, rareCandyXP: store.rareCandyXP))
-                        .font(.caption)
-                        .foregroundStyle(.secondary)
-                        .fixedSize(horizontal: false, vertical: true)
+                    if showsDescription {
+                        Text(l.itemDescription(kind, rareCandyXP: store.rareCandyXP))
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
                     if let type = kind.badgeType {
                         let maximum = Double(PokemonTypeData.badgeGenerations(for: type).count)
                         Text(l.badgeBonus(Double(store.claimedBadgeTierCount(type)) * CollectorBonus.badgeRegionBonus * 100,
                                           of: maximum * CollectorBonus.badgeRegionBonus * 100))
                             .font(.caption.weight(.semibold))
-                            .foregroundStyle(store.claimedBadgeTierCount(type) > 0 ? .green : .secondary)
+                            .foregroundStyle(store.claimedBadgeTierCount(type) > 0 ? Design.actionColor : .secondary)
                             .monospacedDigit()
                     }
                 }
@@ -280,17 +354,58 @@ private struct AchievementCard: View {
         .designSurface(cornerRadius: Design.cornerRadius)
     }
 
+    /// A stone on one row (#183): its icon, name, type and eggs, where it stands, then its Pokémon at 40 pt, in black
+    /// until they graduated, and their count. What a stone gives is said once, above the stones.
+    private func stoneRow(_ l: L) -> some View {
+        let progress = store.unlockProgress(of: kind).first
+        return HStack(alignment: .center, spacing: 8) {
+            ItemIconView(kind: kind, size: 30)
+                .grayscale(isClaimed || canClaim ? 0 : 1)
+                .opacity(isClaimed || canClaim ? 1 : 0.45)
+            VStack(alignment: .leading, spacing: 2) {
+                Text(l.itemName(kind))
+                    .font(.callout.weight(.semibold))
+                    .lineLimit(1).minimumScaleFactor(0.8)
+                HStack(spacing: 4) {
+                    if let type = kind.stoneType {
+                        Badge(l.typeName(type).uppercased(), tint: .type(type))
+                    }
+                    Text("×\(kind.achievementRewardCount)").font(.caption.weight(.bold))
+                        .foregroundStyle(.secondary).monospacedDigit()
+                }
+                statusAction(l)
+            }
+            Spacer(minLength: 4)
+            if let progress {
+                HStack(spacing: 1) {
+                    ForEach(progress.goal.species, id: \.self) { id in
+                        // Still to graduate: its shape in black, as in the Pokédex.
+                        SpriteView(speciesID: id, size: 40, isSilhouette: !progress.registered.contains(id), sameScale: true)
+                            .speciesNameTooltip(id, language: store.language)
+                    }
+                }
+                Text("\(progress.count)/\(progress.goal.needed)")
+                    .font(.caption.weight(.semibold)).monospacedDigit()
+                    .foregroundStyle(progress.isMet ? .primary : .secondary)
+                    .frame(minWidth: 24, alignment: .trailing)
+            }
+        }
+        .padding(.horizontal, 10)
+        .padding(.vertical, 8)
+        .designSurface(cornerRadius: Design.cornerRadius)
+    }
+
     @ViewBuilder
     private func statusAction(_ l: L) -> some View {
         if isClaimed {
+            // Blue with its seal, never green alone (#183).
             HStack(spacing: 4) {
                 Image(systemName: "checkmark.seal.fill")
                     .font(.caption2)
-                    .foregroundStyle(Color.readableGreen)
                 Text(l.claimed)
                     .font(.caption2.weight(.semibold))
-                    .foregroundStyle(Color.readableGreen)
             }
+            .foregroundStyle(Design.actionColor)
         } else if canClaim {
             Button(readyTiers > 1 ? "\(l.claim) (\(readyTiers))" : l.claim) {
                 store.claimAchievement(kind)
@@ -337,7 +452,7 @@ private struct RegionGrid: View {
                     status(tier)
                 }
                 .padding(.horizontal, 6)
-                .padding(.vertical, 4)
+                .padding(.vertical, 3)
                 .background(RoundedRectangle(cornerRadius: 6).fill(background(tier)))
                 .hoverTip("\(tier.progress.registered.count)/\(tier.progress.goal.needed)")
             }
@@ -347,7 +462,7 @@ private struct RegionGrid: View {
     @ViewBuilder
     private func status(_ tier: CompanionStore.RegionTier) -> some View {
         if tier.isClaimed {
-            Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(Color.readableGreen)
+            Image(systemName: "checkmark").font(.caption2.weight(.bold)).foregroundStyle(Design.actionColor)
         } else if tier.isReady {
             Image(systemName: "gift.fill").font(.caption2).foregroundStyle(Color.accentColor)
         } else {
@@ -357,7 +472,7 @@ private struct RegionGrid: View {
     }
 
     private func background(_ tier: CompanionStore.RegionTier) -> Color {
-        if tier.isClaimed { return .green.opacity(0.14) }
+        if tier.isClaimed { return Design.actionColor.opacity(0.14) }
         if tier.isReady { return Color.accentColor.opacity(0.22) }
         return .secondary.opacity(0.08)
     }
@@ -395,11 +510,11 @@ private struct ExcavationPanel: View {
         let claimed = eggs.count { $0 == .opened || $0 == .inBag }
         VStack(alignment: .leading, spacing: 8) {
             HStack(alignment: .center, spacing: 6) {
-                LazyVGrid(columns: Array(repeating: GridItem(.fixed(22), spacing: 2), count: 8), alignment: .leading,
+                LazyVGrid(columns: Array(repeating: GridItem(.fixed(30), spacing: 4), count: 7), alignment: .leading,
                           spacing: 4) {
                     ForEach(Array(eggs.enumerated()), id: \.offset) { _, egg in
                         let lit = egg == .opened || egg == .inBag || egg == .ready
-                        eggSprite(22)
+                        eggSprite(30)
                             .grayscale(lit ? 0 : 1)
                             .opacity(lit ? (egg == .opened ? 0.55 : 1) : 0.35)
                             .overlay(alignment: .bottomTrailing) { badge(egg) }
@@ -451,9 +566,9 @@ private struct ExcavationPanel: View {
     @ViewBuilder
     private func badge(_ egg: Egg) -> some View {
         switch egg {
-        case .opened: Image(systemName: "checkmark.circle.fill").font(.system(size: 9)).foregroundStyle(Color.readableGreen)
-        case .inBag: Image(systemName: "bag.circle.fill").font(.system(size: 9)).foregroundStyle(Color.readableOrange)
-        case .ready: Image(systemName: "gift.circle.fill").font(.system(size: 9)).foregroundStyle(Color.accentColor)
+        case .opened: Image(systemName: "checkmark.circle.fill").font(.system(size: 11)).foregroundStyle(Design.actionColor)
+        case .inBag: Image(systemName: "bag.circle.fill").font(.system(size: 11)).foregroundStyle(Color.readableOrange)
+        case .ready: Image(systemName: "gift.circle.fill").font(.system(size: 11)).foregroundStyle(Color.accentColor)
         case .next, .toEarn: EmptyView()
         }
     }

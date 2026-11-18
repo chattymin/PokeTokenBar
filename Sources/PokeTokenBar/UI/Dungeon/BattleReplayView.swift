@@ -204,12 +204,12 @@ struct BattleArena: View {
                     .font(.caption2.weight(.bold)).lineLimit(1)
                 GenderGlyph(gender: unit.gender, l: l)
                 if let status = unit.status {
-                    Text(l.ailmentName(status).uppercased()).font(.system(size: 7, weight: .heavy))
+                    Text(l.ailmentName(status).uppercased()).font(.system(size: 9, weight: .heavy))
                         .padding(.horizontal, 3).background(Capsule().fill(Color.secondary.opacity(0.3)))
                 }
             }
             HStack(spacing: 4) {
-                Text(l.battleHP).font(.system(size: 8, weight: .heavy)).foregroundStyle(.secondary)
+                Text(l.battleHP).font(.system(size: 9, weight: .heavy)).foregroundStyle(.secondary)
                 ExpeditionBar(value: share, color: .blue, height: 5)
             }
             HStack(spacing: 4) {
