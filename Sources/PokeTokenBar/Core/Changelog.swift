@@ -67,6 +67,22 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-18", entries: [
+            .fixed("2026-11-18-tier-badges", { $0.t("던전 목록의 등급 배지(T1~T5)가 잘 보여요. 밝은 회색 위 흰 글자 대신 연한 배지 위 회색 글자예요.",
+                                                    "The dungeons' tier badges (T1 to T5) are easy to read: gray text on a pale badge instead of white on light gray.",
+                                                    "ダンジョンのランクバッジ（T1〜T5）が読みやすくなりました。明るい灰色に白い文字ではなく、淡いバッジに灰色の文字です。",
+                                                    "Las insignias de nivel de las mazmorras (T1 a T5) se leen bien: texto gris sobre fondo pálido en lugar de blanco sobre gris claro.",
+                                                    "Les badges de palier des donjons (T1 à T5) se lisent bien : texte gris sur badge pâle au lieu de blanc sur gris clair.",
+                                                    "Os selos de nível das masmorras (T1 a T5) ficam legíveis: texto cinza em selo claro em vez de branco em cinza claro.",
+                                                    "Die Stufen-Abzeichen der Dungeons (T1 bis T5) sind gut lesbar: graue Schrift auf hellem Abzeichen statt Weiß auf Hellgrau.",
+                                                    "Значки уровней подземелий (от T1 до T5) теперь читаются: серый текст на бледном значке вместо белого на светло-сером.") }),
+            .improved("2026-11-18-plain-page-look", { $0.t("포켓몬 페이지는 코스튬 없이 움직이는 모습으로 보여요. 코스튬 탭에서 코스튬을 고르면 그때 입고, 페이지를 다시 열면 다시 코스튬 없이 보여요.",
+                                                           "A Pokémon's page shows it without a costume, animated. It wears one only once you pick it in the Costumes tab, and the page opens without it again next time.",
+                                                           "ポケモンのページはコスチュームなしの動く姿で表示されます。コスチュームタブで選んだときだけ着て、ページを開き直すとまたコスチュームなしになります。",
+                                                           "La página de un Pokémon lo muestra sin disfraz y animado. Solo lo lleva cuando lo eliges en la pestaña Disfraces, y la página vuelve a abrirse sin él.",
+                                                           "La fiche d'un Pokémon le montre sans costume, animé. Il ne le porte que si tu le choisis dans l'onglet Costumes, et la fiche se rouvre ensuite sans lui.",
+                                                           "A página de um Pokémon o mostra sem fantasia, animado. Ele só a veste quando você a escolhe na aba Fantasias, e a página volta a abrir sem ela.",
+                                                           "Die Seite eines Pokémon zeigt es ohne Kostüm und animiert. Es trägt eines nur, wenn du es im Tab Kostüme wählst, und die Seite öffnet sich danach wieder ohne.",
+                                                           "Страница покемона показывает его без костюма, с анимацией. Костюм он надевает, только если выбрать его во вкладке Костюмы, а при следующем открытии страница снова без костюма.") }),
             .improved("2026-11-18-costume-eggs-held", { $0.t("코스튬 알에 포켓몬이 미리 적혀 있지 않아요. 열 때 이미 가진 종 중 코스튬이 없는 포켓몬이 뽑히고, 가진 종으로만 진화해요. 해당하는 포켓몬이 없으면 가방에서 잠긴 채 기다리고, 남은 코스튬만큼 알이 모이면 더 생기지 않아요. 같은 시즌의 알은 가방에서 하나로 쌓여요.",
                                                              "A Costume Egg no longer shows its Pokémon: when you open it, it gives one of your species in a costume you lack, and it evolves only into species you have. With none, it waits locked in the Bag, and no more eggs come once those waiting cover the costumes left. A season's eggs stack in the Bag.",
                                                              "コスチュームのタマゴにはもうポケモンが書かれていません。開けたときに、持っている種類のうちコスチュームがないポケモンが選ばれ、持っている種類にだけ進化します。該当するポケモンがいなければバッグでロックされたまま待ち、残りのコスチュームと同じ数のタマゴがあればもう増えません。同じシーズンのタマゴはバッグでまとまります。",

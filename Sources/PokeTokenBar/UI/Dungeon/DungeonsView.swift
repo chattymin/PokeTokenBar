@@ -137,7 +137,7 @@ struct DungeonCard: View {
                     .grayscale(unmet.isEmpty ? 0 : 1).opacity(unmet.isEmpty ? 1 : 0.5)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 5) {
-                        Badge("T\(dungeon.tier.rawValue)", tint: .secondary, style: .solid, size: 10)
+                        Badge("T\(dungeon.tier.rawValue)", tint: .secondary, style: .tinted, size: 10)
                         status(unmet: unmet, wins: wins, l)
                         Spacer(minLength: 4)
                         if let onDetails {
