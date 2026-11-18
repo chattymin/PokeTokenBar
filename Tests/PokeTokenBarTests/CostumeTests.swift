@@ -149,6 +149,19 @@ final class CostumeTests: XCTestCase {
         XCTAssertNil(full.drawCostumeEgg(month: 6))
     }
 
+    /// The owner, 2026-11-18: a season's eggs stack in the Bag as the other eggs do; a use opens one of the stack.
+    func testASeasonsEggsStack() throws {
+        let s = try store {
+            $0.costumeEggs = [self.egg("b", month: 11), self.egg("a", month: 12), self.egg("c", month: 12), self.egg("d", month: 12)]
+            $0.dex = [self.plain([172, 25, 26])]
+        }
+        XCTAssertEqual(s.costumeEggStacks.map(\.month), [12, 11], "this month's first, then the latest")
+        XCTAssertEqual(s.costumeEggStacks.map(\.count), [3, 1])
+        XCTAssertEqual(s.costumeEggStacks.first?.first.id, "a")
+        XCTAssertTrue(s.useCostumeEgg("a"))
+        XCTAssertEqual(s.costumeEggStacks.map(\.count), [2, 1], "one of the stack opened")
+    }
+
     /// The owner, 2026-11-18: an egg gives only a Pokémon the player has; with none of its lot's, it stays locked.
     func testAnEggIsLockedUntilAPokemonOfItsLotIsHeld() throws {
         let none = try store { $0.costumeEggs = [self.egg("e")] }

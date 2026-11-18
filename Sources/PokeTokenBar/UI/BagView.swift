@@ -38,7 +38,7 @@ struct BagView: View {
     private var content: some View {
         let owned = store.ownedItems
         let eggs = store.dungeonProgress.eggs
-        let costumeEggs = store.state.costumeEggs
+        let costumeEggs = store.costumeEggStacks
         let specialEggs = eggs.count + costumeEggs.count
         if owned.isEmpty && specialEggs == 0 && chestFound == nil {
             emptyState
@@ -69,8 +69,8 @@ struct BagView: View {
                                     ForEach(eggs) { egg in
                                         DungeonEggCard(store: store, nav: nav, egg: egg)
                                     }
-                                    ForEach(costumeEggs) { egg in
-                                        CostumeEggCard(store: store, nav: nav, egg: egg)
+                                    ForEach(costumeEggs) { stack in
+                                        CostumeEggCard(store: store, nav: nav, egg: stack.first, count: stack.count)
                                     }
                                 }
                                 itemCards(group.items)

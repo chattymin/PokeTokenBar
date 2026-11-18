@@ -70,14 +70,14 @@ extension L {
           "Événement du mois : \(event)", "Evento do mês: \(event)", "Event des Monats: \(event)", "Событие месяца: \(event)")
     }
     func costumeEggRule(_ rate: String) -> String {
-        t("토큰 \(rate)마다 이번 달 코스튬 알 1개, 아직 없는 코스튬부터.",
-          "A Costume Egg of this month every \(rate) tokens, the costumes you lack first.",
-          "トークン\(rate)ごとに今月のコスチュームのタマゴを1こ。まだないコスチュームから。",
-          "Un huevo disfrazado del mes cada \(rate) tokens, primero los disfraces que te faltan.",
-          "Un Œuf costumé du mois tous les \(rate) tokens, d'abord les costumes qui te manquent.",
-          "Um ovo fantasiado do mês a cada \(rate) tokens, primeiro as fantasias que faltam.",
-          "Alle \(rate) Tokens ein Kostüm-Ei des Monats, zuerst die Kostüme, die dir fehlen.",
-          "Каждые \(rate) токенов: костюмное яйцо месяца, сначала те костюмы, которых нет.")
+        t("토큰 \(rate)마다 이번 달 코스튬 알 1개. 열면 가진 포켓몬이 아직 없는 코스튬을 입고 나와요.",
+          "A Costume Egg of this month every \(rate) tokens: opened, it gives one of your Pokémon in a costume you lack.",
+          "トークン\(rate)ごとに今月のコスチュームのタマゴを1こ。開けると、持っているポケモンがまだないコスチュームで出ます。",
+          "Un huevo disfrazado del mes cada \(rate) tokens: al abrirlo da uno de tus Pokémon con un disfraz que te falta.",
+          "Un Œuf costumé du mois tous les \(rate) tokens : à l'ouverture, un de tes Pokémon dans un costume qui te manque.",
+          "Um ovo fantasiado do mês a cada \(rate) tokens: ao abrir, um dos seus Pokémon com uma fantasia que falta.",
+          "Alle \(rate) Tokens ein Kostüm-Ei des Monats: Geöffnet gibt es eines deiner Pokémon in einem Kostüm, das dir fehlt.",
+          "Каждые \(rate) токенов: костюмное яйцо месяца. При открытии даёт твоего покемона в костюме, которого у тебя нет.")
     }
     func costumeEggNext(_ left: String) -> String {
         t("다음 알까지 \(left)", "\(left) to the next egg", "つぎのタマゴまで\(left)", "\(left) para el próximo huevo",
@@ -180,6 +180,30 @@ extension L {
           "Bloqueado: nenhum dos seus Pokémon formados tem uma fantasia a ganhar nesta temporada.",
           "Gesperrt: Keines deiner verabschiedeten Pokémon hat in dieser Saison noch ein Kostüm zu gewinnen.",
           "Заблокировано: ни у одного твоего выпускника нет костюма, который можно получить в этом сезоне.")
+    }
+
+    /// The month's lot has no costume left that the eggs waiting do not cover: no egg comes.
+    var costumeEggNoMore: String {
+        t("이번 달 코스튬 알은 더 생기지 않아요: 가방의 알이 남은 코스튬을 모두 채워요.",
+          "No more Costume Eggs this month: the eggs in your Bag cover the costumes left.",
+          "今月のコスチュームのタマゴはもう出ません：バッグのタマゴで残りのコスチュームが足ります。",
+          "No llegan más huevos disfrazados este mes: los de tu Mochila cubren los disfraces que quedan.",
+          "Plus d'Œuf costumé ce mois-ci : ceux de ton Sac couvrent les costumes restants.",
+          "Não vêm mais ovos fantasiados este mês: os da sua Mochila cobrem as fantasias restantes.",
+          "Diesen Monat kommen keine Kostüm-Eier mehr: Die Eier in deinem Beutel decken die übrigen Kostüme ab.",
+          "В этом месяце костюмных яиц больше не будет: яйца в сумке покрывают оставшиеся костюмы.")
+    }
+
+    /// Every costume of the month's lot collected or promised: no egg comes.
+    var costumeLotComplete: String {
+        t("이번 달 코스튬을 모두 모았어요: 코스튬 알은 더 생기지 않아요.",
+          "Every costume of this month is yours: no more Costume Eggs.",
+          "今月のコスチュームはすべて集めました：コスチュームのタマゴはもう出ません。",
+          "Ya tienes todos los disfraces de este mes: no llegan más huevos disfrazados.",
+          "Tous les costumes de ce mois sont à toi : plus d'Œuf costumé.",
+          "Todas as fantasias deste mês são suas: não vêm mais ovos fantasiados.",
+          "Alle Kostüme dieses Monats gehören dir: keine Kostüm-Eier mehr.",
+          "Все костюмы этого месяца твои: костюмных яиц больше не будет.")
     }
 
     var costumeEggLockedShort: String {

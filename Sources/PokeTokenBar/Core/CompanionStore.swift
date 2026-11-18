@@ -3604,6 +3604,25 @@ final class CompanionStore {
         return CostumeEgg(id: UUID().uuidString, code: pick.code, speciesID: pick.speciesID, form: pick.form, month: month)
     }
 
+    /// The Bag's Costume Eggs, one stack a season (the owner, 2026-11-18: "comme les autres œufs similaires"): they
+    /// hold only their month, so a season's are alike. This month's first, then the latest seasons; `first` is the one
+    /// a use opens.
+    struct CostumeEggStack: Equatable, Identifiable {
+        let month: Int
+        let first: CostumeEgg
+        let count: Int
+        var id: Int { month }
+    }
+
+    var costumeEggStacks: [CostumeEggStack] {
+        let now = costumeMonth
+        let byMonth = Dictionary(grouping: state.costumeEggs, by: \.month)
+        // A season's eggs are earned in its month: the months back from this one, this one first.
+        return byMonth.keys.sorted { (now - $0 + 12) % 12 < (now - $1 + 12) % 12 }.compactMap { month in
+            byMonth[month].flatMap { eggs in eggs.first.map { CostumeEggStack(month: month, first: $0, count: eggs.count) } }
+        }
+    }
+
     /// Whether a Costume Egg of the Bag is locked: none of the player's Pokémon has a costume left in its lot.
     func isCostumeEggLocked(_ id: String) -> Bool {
         guard let egg = state.costumeEggs.first(where: { $0.id == id }) else { return false }

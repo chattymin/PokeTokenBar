@@ -2,12 +2,13 @@ import SwiftUI
 
 /// A Costume Egg in the Bag (the owner, 2026-11-13): its month's event egg, used as the Shop's eggs are. What it holds
 /// is drawn when opened, so it shows no Pokémon; locked while none of the player's Pokémon has a costume left in its lot
-/// (the owner, 2026-11-18).
+/// (the owner, 2026-11-18). A season's eggs stack in one card, as the Bag's other eggs: a use opens the first.
 @MainActor
 struct CostumeEggCard: View {
     let store: CompanionStore
     let nav: PopoverNavigation
     let egg: CostumeEgg
+    var count = 1
 
     var body: some View {
         let l = store.l
@@ -17,7 +18,11 @@ struct CostumeEggCard: View {
             HStack(alignment: .center, spacing: 10) {
                 SpriteView(speciesID: nil, size: 30, egg: .costume(egg.month))
                 VStack(alignment: .leading, spacing: Design.productTextSpacing) {
-                    Text(name).font(.callout.weight(.semibold)).lineLimit(1)
+                    HStack(spacing: 6) {
+                        Text(name).font(.callout.weight(.semibold)).lineLimit(1)
+                        Text("×\(count)").font(.caption.weight(.bold))
+                            .foregroundStyle(.secondary).monospacedDigit()
+                    }
                     Text(locked ? l.costumeEggLocked : l.costumeEggDrawnAtOpening)
                         .font(.caption).foregroundStyle(locked ? Color.readableOrange : .secondary)
                         .fixedSize(horizontal: false, vertical: true)
@@ -103,8 +108,15 @@ struct CostumeCollectionScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            ProgressView(value: Double(progress), total: Double(rate)).tint(CollectionStatsScreen.done)
-            Text(l.costumeEggNext(TokenFormatter.compact(rate - progress))).font(.caption2).foregroundStyle(.secondary)
+            // No egg comes once the eggs waiting cover the month's costumes left (the owner, 2026-11-18).
+            if store.costumeEggsLeftToEarn(month: month) > 0 {
+                ProgressView(value: Double(progress), total: Double(rate)).tint(CollectionStatsScreen.done)
+                Text(l.costumeEggNext(TokenFormatter.compact(rate - progress))).font(.caption2).foregroundStyle(.secondary)
+            } else {
+                let waiting = store.state.costumeEggs.contains { $0.month == month }
+                Text(waiting ? l.costumeEggNoMore : l.costumeLotComplete).font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
         }
         .padding(.horizontal, 10)
         .padding(.vertical, 8)
