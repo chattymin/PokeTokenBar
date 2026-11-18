@@ -190,7 +190,7 @@ struct HideoutCard: View {
                 .frame(width: 96)
                 VStack(alignment: .leading, spacing: 5) {
                     HStack(spacing: 5) {
-                        Badge("T\(team.tier.rawValue)", tint: .secondary, style: .solid, size: 10)
+                        Badge("T\(team.tier.rawValue)", tint: .secondary, style: .tinted, size: 10)
                         Text(l.villainTeamName(team).uppercased()).font(.system(size: 10, weight: .heavy)).kerning(0.6)
                             .foregroundStyle(team.color)
                     }

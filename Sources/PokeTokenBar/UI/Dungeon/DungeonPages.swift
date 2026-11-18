@@ -164,7 +164,7 @@ struct DungeonDetailScreen: View {
                         Ellipse().fill(Color.black.opacity(0.22)).frame(width: 70, height: 12).blur(radius: 2)
                     }
                 VStack(alignment: .leading, spacing: 5) {
-                    Badge("T\(dungeon.tier.rawValue)", tint: .secondary).fixedSize()
+                    Badge("T\(dungeon.tier.rawValue)", tint: .secondary, style: .tinted).fixedSize()
                     Text(l.dungeonName(id)).font(.system(size: 18, weight: .bold, design: .rounded))
                         .lineLimit(2).minimumScaleFactor(0.85).fixedSize(horizontal: false, vertical: true)
                     if !dungeon.themeTypes.isEmpty {

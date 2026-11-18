@@ -73,8 +73,16 @@ struct Badge<Label: View>: View {
 
     @Environment(\.colorScheme) private var colorScheme
 
+    /// The style drawn: the gray `.secondary` is a light fill on a dark card, where white text could not be read (the
+    /// dungeons' "T2", the owner 2026-11-18), so it is always tinted.
+    var resolvedStyle: Style {
+        if case .secondary = tint { return .tinted }
+        return style
+    }
+
     var body: some View {
-        label
+        let style = resolvedStyle
+        return label
             .font(.system(size: size, weight: .bold))
             .foregroundStyle(style == .solid ? Color.white : tint.color)
             // Tinted text on its faint tint: a shade darker on a light card, lighter on a dark one, so green, orange

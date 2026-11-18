@@ -2490,7 +2490,8 @@ struct PokemonDetailView: View {
     @State private var editingLoopSlot: Int?
     @State private var selectedShiny: Bool?
     /// The look the header shows, picked among the costumes (`CostumeEntry.key`, `plainLook` for none); nil shows the
-    /// individual's own.
+    /// plain look, the animated sprite, even for an individual caught in a costume (the owner, 2026-11-18). A page
+    /// opened again starts without it.
     @State private var shownCostume: String?
     @State private var tab: DetailTab
     private static let plainLook = ""
@@ -2912,19 +2913,21 @@ struct PokemonDetailView: View {
         }
     }
 
-    /// The header's look: a costume picked below, else the individual's costume at this species, else the form.
+    /// The header's look: a costume picked below, else the form, plain (`headerLook(shown:...)`).
     private var headerLook: (form: PokemonForm?, shiny: Bool) {
-        let form = displayedSpecies.form
-        switch shownCostume {
-        case Self.plainLook?: return (form, displayedShiny)
-        case let key?:
-            // A costume of another form picked before the form changed: the individual's look.
-            guard let entry = CostumeCatalog.byKey[key], speciesCostumes.contains(entry) else { return (form, displayedShiny) }
-            return (entry.displayForm, displayedShiny && store.ownedCostumeKeys().shiny.contains(key))
-        case nil:
-            guard let individual, individual.costume != nil else { return (form, displayedShiny) }
-            return (individual.spriteForm(at: species.id), displayedShiny)
+        Self.headerLook(shown: shownCostume, form: displayedSpecies.form, shiny: displayedShiny,
+                        costumes: speciesCostumes, shinyCostumes: store.ownedCostumeKeys().shiny)
+    }
+
+    /// The owner, 2026-11-18: a costume's still shows only once picked among the costumes; until then, and for an
+    /// individual caught in one too, the page shows the plain look, whose sprite is animated. A costume of another
+    /// form, picked before the form changed, falls back to the plain look as well.
+    static func headerLook(shown: String?, form: PokemonForm?, shiny: Bool, costumes: [CostumeEntry],
+                           shinyCostumes: Set<String>) -> (form: PokemonForm?, shiny: Bool) {
+        guard let key = shown, key != plainLook, let entry = CostumeCatalog.byKey[key], costumes.contains(entry) else {
+            return (form, shiny)
         }
+        return (entry.displayForm, shiny && shinyCostumes.contains(key))
     }
 
     /// Every costume of the species, those collected in color and the others as silhouettes; one collected shows in the
@@ -2934,8 +2937,8 @@ struct PokemonDetailView: View {
         let owned = store.ownedCostumeKeys()
         let costumes = speciesCostumes
         let have = costumes.filter { owned.all.contains($0.key) }.count
-        let worn = individual.flatMap { $0.costume == nil ? nil : CostumeCatalog.entry(code: $0.costume!, speciesID: species.id, form: $0.form)?.key }
-        let current = shownCostume ?? worn ?? Self.plainLook
+        // The plain look until a costume is picked, the individual's own costume included.
+        let current = shownCostume ?? Self.plainLook
         return VStack(alignment: .leading, spacing: 7) {
             HStack(spacing: 6) {
                 Label(l.costumesTitle.uppercased(), systemImage: "theatermasks.fill")

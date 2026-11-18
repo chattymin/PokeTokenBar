@@ -276,6 +276,26 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(s.state.dex.last?.finalID, 25)
     }
 
+    /// The owner, 2026-11-18: a Pokémon's page shows its plain look, the animated sprite, until a costume is picked in
+    /// its Costumes tab, for an individual caught in a costume too; a page opened again starts with nothing picked.
+    func testAPageShowsACostumeOnlyOncePicked() throws {
+        let costumes = CostumeCatalog.entries.filter {
+            $0.speciesID == 25 && CostumeCatalog.entry(code: $0.code, speciesID: 25, form: nil) == $0
+        }
+        let hat = try XCTUnwrap(CostumeCatalog.byKey["HOLIDAY_2016:25"])
+        XCTAssertTrue(costumes.contains(hat))
+        let look = { (shown: String?, shinies: Set<String>) in
+            PokemonDetailView.headerLook(shown: shown, form: nil, shiny: true, costumes: costumes, shinyCostumes: shinies)
+        }
+        XCTAssertNil(look(nil, [hat.key]).form, "nothing picked: the plain look")
+        XCTAssertTrue(look(nil, [hat.key]).shiny)
+        XCTAssertNil(look("", [hat.key]).form, "\"No costume\" picked")
+        XCTAssertEqual(look(hat.key, [hat.key]).form, hat.displayForm, "picked: worn")
+        XCTAssertTrue(look(hat.key, [hat.key]).shiny)
+        XCTAssertFalse(look(hat.key, []).shiny, "its shiny only once collected shiny")
+        XCTAssertNil(look("FALL_2022:710:small", [hat.key]).form, "another species' costume: the plain look")
+    }
+
     /// The owner, 2026-11-13: Home says "New costume" for a costumed Pokémon whose species are all held but whose
     /// costume is not, "New" when a species is new, and nothing new once the costume is collected too.
     func testHomeSaysNewCostume() throws {
