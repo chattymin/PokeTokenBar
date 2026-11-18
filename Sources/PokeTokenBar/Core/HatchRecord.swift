@@ -103,7 +103,7 @@ struct HatchRecord: Codable, Sendable, Equatable {
 extension CompanionState {
     /// The egg incubating, as its record names it.
     var incubatingHatchEgg: HatchEgg {
-        if let egg = eggFromDungeon { return .dungeon(baseID: egg.baseID, form: egg.form, shiny: egg.isShiny) }
+        if let egg = eggFromDungeon { return egg.hatchEgg }
         if let egg = eggFromCostume { return .costume(code: egg.code, speciesID: egg.speciesID) }
         if let eggEvent { return .event(eggEvent, key: eggEventKey) }
         if eggFromTypeNullEgg { return .typeNull }
@@ -113,4 +113,8 @@ extension CompanionState {
         if let eggTypeGuarantee { return .stone(eggTypeGuarantee) }
         return .tier(eggTier)
     }
+}
+
+extension DungeonEgg {
+    var hatchEgg: HatchEgg { .dungeon(baseID: baseID, form: form, shiny: isShiny) }
 }

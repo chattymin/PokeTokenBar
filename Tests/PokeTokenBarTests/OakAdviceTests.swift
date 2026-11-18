@@ -199,7 +199,8 @@ final class OakAdviceTests: XCTestCase {
     /// waits to be claimed unless `claimed` holds it.
     private func spareStore(bag: [ItemKind: Int] = [:], lines: [[Int]]? = nil, active: MonState? = nil,
                             index: [BaseSpecies]? = nil, claimed: Set<String> = ["summer@2026"],
-                            wallet: Int = 0, exploring: Bool = false, shinyLines: Set<Int> = []) async throws -> CompanionStore {
+                            wallet: Int = 0, exploring: Bool = false, shinyLines: Set<Int> = [],
+                            dungeonEggs: [DungeonEgg] = []) async throws -> CompanionStore {
         let spare = active ?? mon([16])
         let dex = ([[16, 17, 18]] + (lines ?? mostLines)).map { chain -> DexEntry in
             var entry = graduated(chain)
@@ -212,6 +213,7 @@ final class OakAdviceTests: XCTestCase {
             st.claimedEventEggs = claimed
             st.usedSinceInstall = wallet
             st.dungeons.expedition = expedition
+            st.dungeons.eggs = dungeonEggs
         }
         await s.loadHatchIndex()
         return s
@@ -813,5 +815,149 @@ final class OakAdviceTests: XCTestCase {
         XCTAssertEqual(s.oakBudget?.egg, .rareEgg)
         XCTAssertEqual(s.oakBudget?.waitsForNext, false)
         XCTAssertEqual(s.oakBudget?.buyAhead, 3)
+    }
+
+    // MARK: Dungeon eggs
+
+    private func dungeonEgg(_ baseID: Int, shiny: Bool = false, form: PokemonForm? = nil) -> DungeonEgg {
+        DungeonEgg(id: "egg-\(baseID)-\(shiny)", baseID: baseID, form: form, isShiny: shiny, sourceSpeciesID: baseID)
+    }
+
+    /// Torchic, a Rare line no graduated Pokémon holds: its egg brings it for sure, the Rare+ Egg one time in four.
+    func testADungeonEggOfASpeciesNotGraduatedBeatsTheRareEgg() async throws {
+        let rare = try await spareStore().price(of: .egg(.rare))
+        let egg = dungeonEgg(255)
+        let s = try await spareStore(wallet: rare, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+        XCTAssertEqual(s.oakRelease?.sendsOffNow, true)
+        XCTAssertEqual(s.candiesToGive, 0)
+    }
+
+    /// A plain egg of a line held brings nothing, not even a shiny: never advised, whatever the rest of the Bag holds.
+    func testAPlainDungeonEggOfAHeldLineIsNeverAdvised() async throws {
+        let egg = dungeonEgg(4)
+        var s = try await spareStore(lines: onlyCaterpieLeft, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .finish(left: 75_000_000, why: .noBetterEgg))
+        let every = onlyCaterpieLeft + [[10, 11, 12], [140, 141]]
+        s = try await spareStore(lines: every, shinyLines: [4, 7, 10, 138, 140, 255], dungeonEggs: [egg])
+        XCTAssertEqual(s.newOdds(item: .pokemonEgg), 0)
+        XCTAssertEqual(s.oakRelease, .finish(left: 75_000_000, why: .noBetterEgg))
+        let rare = try await spareStore().price(of: .egg(.rare))
+        s = try await spareStore(wallet: rare, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .buy(.rare, odds: odds(1, of: 4)))
+    }
+
+    /// A shiny egg of a held line brings a first shiny for sure, unless a shiny of that line is held.
+    func testAShinyDungeonEggOfALineWithoutAShinyHeldBringsItsFirstShiny() async throws {
+        let egg = dungeonEgg(4, shiny: true)
+        var s = try await spareStore(lines: onlyCaterpieLeft, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+        s = try await spareStore(lines: onlyCaterpieLeft, shinyLines: [4], dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .finish(left: 75_000_000, why: .noBetterEgg))
+    }
+
+    /// A form no graduated Pokémon holds is new even when the species is held.
+    func testADungeonEggOfANewFormBringsSomethingNew() async throws {
+        let alola = PokemonForm("alola")
+        let egg = dungeonEgg(37, form: alola)
+        let s = try await spareStore(lines: [[4, 5, 6], [7, 8, 9], [10, 11, 12], [138, 139], [37, 38]],
+                                     index: releaseIndex + [BaseSpecies(id: 37, captureRate: 190)], dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+    }
+
+    /// The Fossil Egg brings Kabuto for sure too: the Bag lists the dungeon eggs first, so they decide a tie.
+    func testADungeonEggComesBeforeAFossilEggOnATie() async throws {
+        let first = dungeonEgg(255), second = dungeonEgg(4, shiny: true)
+        var s = try await spareStore(bag: [.fossilEgg: 1], claimed: [], dungeonEggs: [first])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(first, odds: 1))
+        s = try await spareStore(bag: [.fossilEgg: 1], claimed: [], dungeonEggs: [first, second])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(first, odds: 1), "the first dungeon egg of the Bag")
+        s = try await spareStore(bag: [.fossilEgg: 1], claimed: [], dungeonEggs: [dungeonEgg(10, form: nil)])
+        XCTAssertEqual(s.oakRelease, .bag(.fossilEgg, odds: 1), "a plain egg of a held line brings nothing")
+    }
+
+    /// Every draw of the Pokémon Egg is new here: nothing beats it, and the dungeon egg of the Bag stands in for it.
+    func testADungeonEggThatCannotBeatThePokemonEggStandsIn() async throws {
+        let egg = dungeonEgg(255)
+        var s = try await spareStore(lines: [], dungeonEggs: [egg])
+        XCTAssertEqual(s.newOdds(item: .pokemonEgg), 1)
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+        s = try await spareStore(lines: [])
+        XCTAssertEqual(s.oakRelease, .finish(left: 75_000_000, why: .noBetterEgg))
+        var pidgey = mon([16])
+        pidgey.usedAtStage = 40_000_000
+        s = try await spareStore(lines: [], active: pidgey, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .finish(left: 35_000_000, why: .noBetterEgg), "too far along")
+    }
+
+    /// A team away: the egg is advised for the return, and unusable until then.
+    func testWhileATeamExploresTheDungeonEggIsAdvisedForTheReturn() async throws {
+        let egg = dungeonEgg(255)
+        let s = try await spareStore(exploring: true, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+        XCTAssertEqual(s.oakSteps.filter(s.oakWaitsForTheTeam), [.release(.dungeonEgg(egg, odds: 1))])
+        XCTAssertFalse(s.canUseDungeonEgg(egg.id))
+        XCTAssertTrue(s.canUseDungeonEgg(egg.id, onReturn: true))
+        XCTAssertFalse(s.canUseDungeonEgg("missing", onReturn: true))
+    }
+
+    /// The Old Amber carries half of the stage reached to what hatches, short of its first stage: a Pidgey 40 M along
+    /// has 35 M left, and goes for Torchic's egg only with the amber. Oddish's first stage is 12.5 M, too short.
+    func testTheOldAmberCarriesToTheDungeonEggsLine() async throws {
+        var pidgey = mon([16])
+        pidgey.usedAtStage = 40_000_000
+        let egg = dungeonEgg(255)
+        var s = try await spareStore(active: pidgey, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .finish(left: 35_000_000, why: .tooFarAlong))
+        s = try await spareStore(bag: [.oldAmber: 1], active: pidgey, dungeonEggs: [egg])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(egg, odds: 1))
+        pidgey.usedAtStage = 48_000_000
+        s = try await spareStore(bag: [.oldAmber: 1], lines: [[4, 5, 6]], active: pidgey,
+                                 index: [BaseSpecies(id: 43, captureRate: 255), BaseSpecies(id: 4, captureRate: 45)],
+                                 dungeonEggs: [dungeonEgg(43)])
+        XCTAssertEqual(s.oakRelease, .finish(left: 27_000_000, why: .tooFarAlong))
+    }
+
+    /// The Bag's other dungeon eggs hold the stock as good as the Rare+ Egg; the one the Spare goes for does not.
+    func testTheStockCountsTheDungeonEggsThatAreAsGood() async throws {
+        let (rare, _) = try prices()
+        let torchic = dungeonEgg(255), kabuto = dungeonEgg(140), plain = dungeonEgg(4)
+        var s = try await spareStore(wallet: 10 * rare, dungeonEggs: [torchic])
+        XCTAssertEqual(s.oakBudget?.held, 0)
+        s = try await spareStore(wallet: 10 * rare, dungeonEggs: [torchic, kabuto])
+        XCTAssertEqual(s.oakBudget?.held, 1)
+        s = try await spareStore(wallet: 10 * rare, dungeonEggs: [torchic, plain])
+        XCTAssertEqual(s.oakBudget?.held, 0, "a plain egg of a held line brings nothing")
+    }
+
+    /// The egg the Spare goes for may bring the line the Rare+ Egg could bring: none is bought ahead on top of it.
+    func testTheGuardAgainstBuyingAheadReadsTheDungeonEgg() async throws {
+        let (rare, _) = try prices()
+        let s = try await spareStore(wallet: 10 * rare, dungeonEggs: [dungeonEgg(255)])
+        XCTAssertEqual(s.oakBudget?.buyAhead, 0)
+        XCTAssertEqual(s.oakBudget?.waitsForNext, true)
+    }
+
+    /// The last egg that holds the stock is for the next send-off only when the Spare does not go for an egg of the Bag.
+    func testADungeonEggTheSpareGoesForIsNotTheStocksLastEgg() async throws {
+        let index = [BaseSpecies(id: 255, captureRate: 45), BaseSpecies(id: 43, captureRate: 255),
+                     BaseSpecies(id: 10, captureRate: 255)]
+        let torchic = dungeonEgg(255), oddish = dungeonEgg(43)
+        let s = try await spareStore(lines: [[10, 11, 12]], index: index, dungeonEggs: [torchic, oddish])
+        XCTAssertEqual(s.oakRelease, .dungeonEgg(torchic, odds: 1))
+        XCTAssertEqual([s.oakBudget?.target, s.oakBudget?.held], [1, 1])
+        XCTAssertEqual(s.oakBudget?.takesTheLast, false)
+    }
+
+    func testTheDungeonEggBubbleAndDetailAreSaidInEveryLanguage() {
+        let release = OakRelease.dungeonEgg(dungeonEgg(255), odds: 1)
+        for language in AppLanguage.allCases {
+            let l = L(language)
+            XCTAssertFalse(l.oakDungeonEggHatches.isEmpty)
+            XCTAssertEqual(l.oakReleaseBubble(release), l.oakReleaseBubble(.bag(.fossilEgg, odds: 1)), "\(language)")
+        }
+        XCTAssertNil(release.egg)
+        XCTAssertEqual(release.hatchEgg, .dungeon(baseID: 255, form: nil, shiny: false))
+        XCTAssertEqual(OakRelease.bag(.fireStone, odds: 1).hatchEgg, .stone(.fire))
     }
 }

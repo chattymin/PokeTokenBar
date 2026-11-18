@@ -34,6 +34,9 @@ enum OakRelease: Equatable, Sendable {
     /// An egg the Bag holds that does not beat the Pokémon Egg, with odds above 0: used now, rather than awaiting the
     /// balance or letting the Spare finish.
     case freeEgg(ItemKind, odds: Double)
+    /// A dungeon egg the Bag holds, named by the Pokémon it hatches: its odds are 1 for a species or a form new, or for a
+    /// shiny egg bringing a first shiny, else 0.
+    case dungeonEgg(DungeonEgg, odds: Double)
     /// The Spare raised to graduation, `left` growth away.
     case finish(left: Int, why: OakFinish)
 
@@ -43,12 +46,21 @@ enum OakRelease: Equatable, Sendable {
         case .bag(let kind, _), .freeEgg(let kind, _): return kind
         case .claim(let event, _): return event.item
         case .buy(let tier, _): return ItemKind(shopEgg: tier)
-        case .wait, .finish: return nil
+        case .wait, .finish, .dungeonEgg: return nil
         }
     }
 
+    /// What the egg the Spare goes for hatches.
+    var hatchEgg: HatchEgg? {
+        if case .dungeonEgg(let egg, _) = self { return egg.hatchEgg }
+        return egg.flatMap { HatchEgg(item: $0) }
+    }
+
     /// Whether the Spare goes now, leaving its Rare Candies to the one that hatches.
-    var sendsOffNow: Bool { egg != nil }
+    var sendsOffNow: Bool {
+        if case .dungeonEgg = self { return true }
+        return egg != nil
+    }
 
     /// Whether the Spare is sent off, now or once its egg is affordable, rather than raised to graduation.
     var sendsOff: Bool {
@@ -174,13 +186,20 @@ extension CompanionStore {
     var oakRelease: OakRelease? {
         guard activeVerdict == .spare, let index = hatchIndex, let growth = spareGrowth else { return nil }
         let left = growth.total - growth.grown
-        func sendsOff(for egg: ItemKind, grown: Int) -> Bool {
+        func sendsOff(for egg: HatchEgg, grown: Int) -> Bool {
             growth.sendsOffAt(grown) { amberCarry(of: $0, to: egg, index: index) }
         }
         let news = hatchNews
         let claimable = Set(eventEggs.map(\.egg))
+        let dungeonEggs = state.dungeons.eggs.filter { canUseDungeonEgg($0.id, onReturn: true) }
         var best: OakRelease?
         var bestOdds = newOdds(.pokemonEgg, index: index, news: news) ?? 0
+        for egg in dungeonEggs {
+            let odds = newOdds(egg, index: index, news: news)
+            guard odds > bestOdds else { continue }
+            best = .dungeonEgg(egg, odds: odds)
+            bestOdds = odds
+        }
         for kind in ItemKind.allCases where !kind.isRetired {
             let held = canSendOff(for: kind)
             let event = EventEgg(item: kind)
@@ -189,21 +208,28 @@ extension CompanionStore {
             if !held, let event { best = .claim(event, odds: odds) } else { best = .bag(kind, odds: odds) }
             bestOdds = odds
         }
-        if let best, let egg = best.egg {
+        if let best, let egg = best.hatchEgg {
             return sendsOff(for: egg, grown: growth.grown) ? best : .finish(left: left, why: .tooFarAlong)
         }
         func heldEgg() -> OakRelease? {
             var spare: OakRelease?
             var spareOdds = 0.0
+            for egg in dungeonEggs {
+                let odds = newOdds(egg, index: index, news: news)
+                guard odds > spareOdds else { continue }
+                spare = .dungeonEgg(egg, odds: odds)
+                spareOdds = odds
+            }
             for kind in ItemKind.allCases where !kind.isRetired && canSendOff(for: kind) {
                 guard let odds = newOdds(kind, index: index, news: news), odds > spareOdds else { continue }
                 spare = .freeEgg(kind, odds: odds)
                 spareOdds = odds
             }
-            guard let spare, let egg = spare.egg, sendsOff(for: egg, grown: growth.grown) else { return nil }
+            guard let spare, let egg = spare.hatchEgg, sendsOff(for: egg, grown: growth.grown) else { return nil }
             return spare
         }
-        guard let (tier, odds) = shopEgg(index: index, news: news), let egg = ItemKind(shopEgg: tier) else {
+        guard let (tier, odds) = shopEgg(index: index, news: news), let egg = ItemKind(shopEgg: tier).flatMap({ HatchEgg(item: $0) })
+        else {
             return heldEgg() ?? .finish(left: left, why: .noBetterEgg)
         }
         guard sendsOff(for: egg, grown: growth.grown) else { return .finish(left: left, why: .tooFarAlong) }
@@ -252,8 +278,9 @@ extension CompanionStore {
 
     /// What the Old Amber carries on average to what `egg` hatches, `stage` grown at the Spare's stage: half of it, short
     /// of each draw's first evolution (`hatch`), weighed like the odds. None without the Old Amber.
-    private func amberCarry(of stage: Int, to egg: ItemKind, index: [BaseSpecies]) -> Int {
-        guard itemCount(.oldAmber) > 0, let hatches = hatches(egg, index: index) else { return 0 }
+    private func amberCarry(of stage: Int, to egg: HatchEgg, index: [BaseSpecies]) -> Int {
+        guard itemCount(.oldAmber) > 0 else { return 0 }
+        let hatches = hatches(egg, index: index)
         let half = max(0, stage) / 100 * CollectorBonus.oldAmberKeptPercent
         let total = hatches.reduce(0) { $0 + $1.weight }
         guard total > 0 else { return 0 }
@@ -300,7 +327,7 @@ extension CompanionStore {
         let reserve = awaitsEgg ? 0 : (need - buyAhead) * eggPrice
         return OakBudget(egg: kind, odds: odds, target: target, held: held, buyAhead: buyAhead, waitsForNext: waits,
                          reserve: reserve, candies: max(0, wallet - buyAhead * eggPrice - reserve) / candy,
-                         takesTheLast: need == 0 && held == 1 && release?.egg == nil)
+                         takesTheLast: need == 0 && held == 1 && release?.sendsOffNow != true)
     }
 
     func oakWaitsForTheTeam(_ step: OakStep) -> Bool {
@@ -360,7 +387,10 @@ extension CompanionStore {
     /// The Bag's eggs as likely as `odds` to bring something, once the Spare is sent off: without the one it goes for,
     /// with the Fossil Egg its Pokémon gives back (`replaceActiveWithEgg`).
     private func eggsHeld(atLeast odds: Double, after release: OakRelease?, index: [BaseSpecies], news: HatchNews) -> Int {
-        ItemKind.allCases.filter { !$0.isRetired }.reduce(0) { sum, kind in
+        var sent: String?
+        if case .dungeonEgg(let egg, _)? = release { sent = egg.id }
+        let dungeon = state.dungeons.eggs.filter { $0.id != sent && newOdds($0, index: index, news: news) >= odds }.count
+        return dungeon + ItemKind.allCases.filter { !$0.isRetired }.reduce(0) { sum, kind in
             var count = itemCount(kind)
             if case .bag(kind, _)? = release { count -= 1 }
             if kind == .fossilEgg, release?.sendsOffNow == true, isRaisingFossilEggPokemon { count += 1 }
@@ -375,8 +405,8 @@ extension CompanionStore {
                                   news: HatchNews) -> Bool {
         var fresh = newHatches(hatches(kind, index: index) ?? [], news: news)
         var next: [Hatch] = []
-        if let egg = release?.egg {
-            next = hatches(egg, index: index) ?? []
+        if let egg = release?.hatchEgg {
+            next = hatches(egg, index: index)
         } else if let raised = state.active {
             fresh.remove(DexSpeciesKey(speciesID: raised.baseID, form: raised.form))
         } else if state.eggFromTypeNullEgg {
@@ -436,9 +466,20 @@ extension CompanionStore {
         return Set(keys.map { DexSpeciesKey(speciesID: $0.id, form: $0.form) })
     }
 
+    /// The odds that a dungeon egg brings something: its line is known, and it shines only when the egg is shiny.
+    private func newOdds(_ egg: DungeonEgg, index: [BaseSpecies], news: HatchNews) -> Double {
+        hatches(egg.hatchEgg, index: index).reduce(0) {
+            max($0, $1.alwaysShiny ? news.odds($1) : news.new($1.id, $1.form) ? 1 : 0)
+        }
+    }
+
     /// The draws each egg makes (`HatchDraw.outcomes`); nil for an item that is no egg.
     private func hatches(_ item: ItemKind, index: [BaseSpecies]) -> [Hatch]? {
-        HatchEgg(item: item).map { hatchDraw.outcomes($0, index: index) }
+        HatchEgg(item: item).map { hatches($0, index: index) }
+    }
+
+    private func hatches(_ egg: HatchEgg, index: [BaseSpecies]) -> [Hatch] {
+        hatchDraw.outcomes(egg, index: index)
     }
 
     private func hatches(_ egg: EggSpec, index: [BaseSpecies]) -> [Hatch] {

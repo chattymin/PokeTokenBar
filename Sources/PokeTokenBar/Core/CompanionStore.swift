@@ -3523,8 +3523,8 @@ final class CompanionStore {
     }
 
     /// Whether a dungeon's egg of the Bag can be used: as a Fossil Egg, it sends the Pokémon raised off.
-    func canUseDungeonEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.dungeons.eggs.contains { $0.id == id }
+    func canUseDungeonEgg(_ id: String, onReturn: Bool = false) -> Bool {
+        canSendOffActive(onReturn: onReturn) && !isRaisingFossilEggPokemon && state.dungeons.eggs.contains { $0.id == id }
     }
 
     /// Uses a dungeon's egg (Q20 B): the Pokémon raised is sent off for it, and it hatches its line, shiny when it was
