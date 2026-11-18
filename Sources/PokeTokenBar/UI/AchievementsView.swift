@@ -26,8 +26,8 @@ struct AchievementsView: View {
     }
 
     @State private var selectedCategory: AchievementCategory
-    /// The page shown, nil until the first draw pins the opening one (`openingPage`).
-    @State private var page: Int?
+    /// The card to scroll to (`scrollTarget`), nil once the list is there.
+    @State private var scrollTarget: ItemKind?
     /// The achievement opened from Home, lit for a moment.
     @State private var litItem: ItemKind?
 
@@ -86,53 +86,12 @@ struct AchievementsView: View {
         return ready > 0 ? "\(title) ●\(ready)" : title
     }
 
-    // MARK: Pages (#183)
+    // MARK: The list
 
-    /// Stone rows on a page.
-    static let stonesPerPage = 4
-    /// Cards on a page of the other sections, a tall card counting for two.
-    static let cardsPerPage = 2
-
-    /// A section cut into pages, in the section's order: the stones four rows a page, then the Excavation on a page of
-    /// its own (its eggs and fossil lines fill one); the other sections two cards a page, a card as tall as two alone.
-    static func pages(_ items: [ItemKind], _ category: AchievementCategory) -> [[ItemKind]] {
-        var pages: [[ItemKind]] = []
-        if category == .evolutionStones {
-            let stones = items.filter { $0 != .excavation }
-            pages = stride(from: 0, to: stones.count, by: stonesPerPage).map {
-                Array(stones[$0..<min(stones.count, $0 + stonesPerPage)])
-            }
-            if items.contains(.excavation) { pages.append([.excavation]) }
-        } else {
-            var current: [ItemKind] = []
-            var room = cardsPerPage
-            for kind in items {
-                let weight = isTall(kind) ? cardsPerPage : 1
-                if weight > room, !current.isEmpty {
-                    pages.append(current)
-                    current = []
-                    room = cardsPerPage
-                }
-                current.append(kind)
-                room -= weight
-            }
-            if !current.isEmpty { pages.append(current) }
-        }
-        return pages.isEmpty ? [[]] : pages
-    }
-
-    /// A card that takes a page of its own: a medal listing more than four steps, an item asking for one of more than
-    /// two goals.
-    static func isTall(_ kind: ItemKind) -> Bool {
-        if kind.isPlayMedal { return (kind.regionGoals?.count ?? 0) > 4 }
-        // A badge's regions and the Legendary Egg's are goals too, drawn three to a row.
-        if !kind.isRegional, case .species(let goals) = kind.unlock { return goals.count > 2 }
-        return false
-    }
-
-    /// The page holding `kind`.
-    static func page(of kind: ItemKind, in pages: [[ItemKind]]) -> Int? {
-        pages.firstIndex { $0.contains(kind) }
+    /// A section's cards in its order, all in one list: the Excavation, which is not a stone, after every stone.
+    static func listed(_ items: [ItemKind], _ category: AchievementCategory) -> [ItemKind] {
+        guard category == .evolutionStones, items.contains(.excavation) else { return items }
+        return items.filter { $0 != .excavation } + [.excavation]
     }
 
     /// A reward ready to claim on this achievement: one of its regions or steps, or the item itself.
@@ -141,11 +100,11 @@ struct AchievementsView: View {
         return !store.isClaimed(kind) && store.isUnlocked(kind)
     }
 
-    /// Where a section opens: on the achievement Home opened, else on the first page holding a reward ready, else on
-    /// the first page.
-    static func openingPage(_ pages: [[ItemKind]], focus: ItemKind?, store: CompanionStore) -> Int {
-        if let focus, let page = page(of: focus, in: pages) { return page }
-        return pages.firstIndex { $0.contains { isReady($0, store) } } ?? 0
+    /// The card a section's list scrolls to: the achievement Home opened, else the first holding a reward ready (the
+    /// claim banner's link), nil when there is none.
+    static func scrollTarget(_ items: [ItemKind], focus: ItemKind?, store: CompanionStore) -> ItemKind? {
+        if let focus, items.contains(focus) { return focus }
+        return items.first { isReady($0, store) }
     }
 
     var body: some View {
@@ -153,10 +112,7 @@ struct AchievementsView: View {
         // Counted once per draw, for the tabs, the banner and the progress line.
         let tallies = store.achievementTallies()
         let ready = Self.readyCounts(tallies.byGroup)
-        let pages = Self.pages(store.achievementItems(in: selectedCategory.collectorGroup), selectedCategory)
-        let current = min(max(0, page ?? Self.openingPage(pages, focus: nav.achievementFocus, store: store)),
-                          pages.count - 1)
-        let turn = Binding<Int>(get: { current }, set: { page = $0 })
+        let items = Self.listed(store.achievementItems(in: selectedCategory.collectorGroup), selectedCategory)
         VStack(alignment: .leading, spacing: 6) {
             header(tallies.all, ready: ready)
 
@@ -173,43 +129,50 @@ struct AchievementsView: View {
                 }
             }
 
-            // Scrolls only a page taller than the room left (the fossil lines open, a long language).
-            PagedArea(page: turn, pageCount: pages.count) {
-                VStack(alignment: .leading, spacing: 8) {
-                    ForEach(pages[current], id: \.self) { kind in
-                        AchievementCard(store: store, nav: nav, kind: kind)
-                            .overlay {
-                                RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
-                                    .strokeBorder(Design.actionColor, lineWidth: 2)
-                                    .opacity(litItem == kind ? 1 : 0)
-                                    .allowsHitTesting(false)
-                            }
+            ScrollViewReader { proxy in
+                ScrollView {
+                    // Lazy: a section mounts the cards it shows, not its ninety sprites at each change of section.
+                    LazyVStack(alignment: .leading, spacing: 8) {
+                        ForEach(items, id: \.self) { kind in
+                            AchievementCard(store: store, nav: nav, kind: kind)
+                                .overlay {
+                                    RoundedRectangle(cornerRadius: Design.cornerRadius, style: .continuous)
+                                        .strokeBorder(Design.actionColor, lineWidth: 2)
+                                        .opacity(litItem == kind ? 1 : 0)
+                                        .allowsHitTesting(false)
+                                }
+                                .id(kind)
+                        }
                     }
+                    .reservesScrollerLane()
                 }
+                // The card asked for (Home's, the banner's), scrolled to once the section's list is there.
+                .task(id: scrollTarget) {
+                    guard let target = scrollTarget else { return }
+                    proxy.scrollTo(target, anchor: .top)
+                    scrollTarget = nil
+                }
+                // Each section opens at its top.
+                .id(selectedCategory)
             }
-            .frame(maxHeight: .infinity, alignment: .top)
-            .id("\(selectedCategory)-\(current)")
-
-            PageControl(page: turn, pageCount: pages.count, l: l)
-                .frame(maxWidth: .infinity)
+            // No height of its own: the list takes what the header, banner and picker leave of the height.
         }
         .frame(height: height)
-        .onChange(of: selectedCategory) { page = firstPageWithReward(selectedCategory) }
         .task {
-            // The opening page is kept: claiming a reward must not send the page to the next one with a reward.
-            if page == nil { page = current }
-            // Home opened one achievement: its page, lit, then the light fades.
+            // Home opened one achievement: scrolled to and lit, then the light fades.
             guard let focus = nav.achievementFocus else { return }
             nav.achievementFocus = nil
+            scrollTarget = Self.scrollTarget(items, focus: focus, store: store)
             litItem = focus
             try? await Task.sleep(for: .seconds(2))
             withAnimation(.easeOut(duration: 0.6)) { litItem = nil }
         }
     }
 
-    /// Where a section opens when picked: on its first page holding a reward ready, else on its first page.
-    private func firstPageWithReward(_ category: AchievementCategory) -> Int {
-        Self.openingPage(Self.pages(store.achievementItems(in: category.collectorGroup), category), focus: nil, store: store)
+    /// The first card of `category` holding a reward ready: where the claim banner leads.
+    private func firstReward(_ category: AchievementCategory) -> ItemKind? {
+        Self.scrollTarget(Self.listed(store.achievementItems(in: category.collectorGroup), category), focus: nil,
+                          store: store)
     }
 
     /// Said once above a section whose cards all say the same: the stones' eggs and goal, the badges' regions. The
@@ -253,13 +216,13 @@ struct AchievementsView: View {
         let unclaimed = all.ready
         if unclaimed > 0 {
             HStack(spacing: 8) {
-                // Says where the rewards wait and takes you there: each tap opens the next section with one, on the
-                // page holding it.
+                // Says where the rewards wait and takes you there: each tap opens the next section with one, scrolled
+                // to its card.
                 Button {
                     if let next = Self.nextCategoryWithRewards(after: selectedCategory, ready: ready) {
                         selectedCategory = next
-                        // Also when the section stays: its reward may wait on another page (the Excavation's).
-                        page = firstPageWithReward(next)
+                        // Also when the section stays: its reward may wait further down (the Excavation's).
+                        scrollTarget = firstReward(next)
                     }
                 } label: {
                     HStack(spacing: 6) {

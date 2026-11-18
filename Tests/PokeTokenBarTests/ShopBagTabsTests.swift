@@ -59,20 +59,6 @@ final class ShopBagTabsTests: XCTestCase {
         XCTAssertEqual(CompanionStore.ShopTab.allCases.filter(\.namesItsSections), [.raising])
     }
 
-    /// A page of the Bag's cards holds as many as fit, up to the tab's limit: four dungeon items in French were one too
-    /// many in German, where the page ran over its page control.
-    func testAPageHoldsTheCardsThatFit() {
-        XCTAssertEqual(BagView.pageRanges(heights: [100, 100, 100, 100, 100], available: 330, spacing: 8, limit: 4),
-                       [0..<3, 3..<5], "the fourth card does not fit")
-        XCTAssertEqual(BagView.pageRanges(heights: [90, 90, 90, 90, 90], available: 400, spacing: 8, limit: 4),
-                       [0..<4, 4..<5], "the limit, though a fifth would fit")
-        XCTAssertEqual(BagView.pageRanges(heights: [196, 196], available: 400, spacing: 8, limit: 4), [0..<2], "an exact fit")
-        XCTAssertEqual(BagView.pageRanges(heights: [500, 50], available: 400, spacing: 8, limit: 4), [0..<1, 1..<2],
-                       "a card taller than the page alone on its own")
-        XCTAssertEqual(BagView.pageRanges(heights: [], available: 400, spacing: 8, limit: 4), [0..<0])
-        XCTAssertEqual(BagView.Section.allCases.map(\.pageSize), [nil, 4, 12, 3])
-    }
-
     /// The tabs' titles fit their segments in every language: the Bag's four with two-digit counts across the tab, the
     /// Shop's three beside the scroller's lane.
     func testTheTabTitlesFitTheirSegmentsInEveryLanguage() {

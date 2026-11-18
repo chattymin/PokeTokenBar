@@ -7,19 +7,17 @@ struct PageControl: View {
     @Binding var page: Int
     let pageCount: Int
     let l: L
-    /// What the middle reads instead of "3 / 12", for pages grouped under a name ("November · 1 / 2", the costumes).
-    var caption: String? = nil
 
     var body: some View {
         if pageCount > 1 {
             HStack(spacing: 0) {
                 DexPageButton(forward: false, label: l.dexPagePrev) { page = max(0, page - 1) }
                     .disabled(page == 0)
-                Text(caption ?? "\(page + 1) / \(pageCount)")
+                Text("\(page + 1) / \(pageCount)")
                     .font(.system(size: 12, weight: .semibold)).monospacedDigit()
                     .foregroundStyle(.secondary)
                     .lineLimit(1)
-                    .accessibilityLabel(caption ?? l.dexPageLabel(page + 1, pageCount))
+                    .accessibilityLabel(l.dexPageLabel(page + 1, pageCount))
                 DexPageButton(forward: true, label: l.dexPageNext) { page = min(pageCount - 1, page + 1) }
                     .disabled(page >= pageCount - 1)
             }
@@ -39,31 +37,6 @@ enum Paging {
     static func slice<T>(_ items: [T], page: Int, size: Int) -> [T] {
         let page = clamped(page, count: items.count, size: size)
         return Array(items.dropFirst(page * size).prefix(size))
-    }
-}
-
-/// A page's content in the room left to it, the wheel turning the pages. A page taller than its room (a long language,
-/// a card unfolded) scrolls instead, and the wheel then scrolls it: turning the page would leave its end unreachable.
-@MainActor
-struct PagedArea<Content: View>: View {
-    @Binding var page: Int
-    let pageCount: Int
-    @ViewBuilder let content: Content
-    @State private var contentHeight: CGFloat = 0
-    @State private var roomHeight: CGFloat = 0
-
-    var body: some View {
-        ScrollView {
-            content
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
-                .reservesScrollerLane()
-        }
-        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { roomHeight = $0 }
-        .background {
-            if contentHeight <= roomHeight + 0.5 {
-                Color.clear.pagedByScrollWheel(page: $page, pageCount: pageCount)
-            }
-        }
     }
 }
 

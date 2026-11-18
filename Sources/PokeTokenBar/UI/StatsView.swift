@@ -34,10 +34,6 @@ struct StatsScreen: View {
     @State private var offset = 0
     /// "Where the tokens went" split by model rather than by tool.
     @State private var splitByModel = false
-    /// The page of the period's graduates.
-    @State private var graduatesPage = 0
-    /// Graduates on a page: two rows of five, each named.
-    static let graduatesPerPage = 10
     /// Today's bar, as on Home.
     fileprivate static let accent = Design.actionColor
     private static let kindColors: [Color] = [
@@ -101,11 +97,7 @@ struct StatsScreen: View {
             .frame(height: 540)
         }
         .padding(PopoverMetrics.padding)
-        .onChange(of: period) {
-            offset = 0
-            graduatesPage = 0
-        }
-        .onChange(of: offset) { graduatesPage = 0 }
+        .onChange(of: period) { offset = 0 }
     }
 
     /// A week, month or year: its controls and summary, then the tab picked under them.
@@ -329,13 +321,9 @@ struct StatsScreen: View {
 
     // MARK: Graduates
 
-    /// The period's graduates, ten a page with their names (#183), a shiny one with the sparkles.
+    /// The period's graduates, all of them with their names (#183), a shiny one with the sparkles.
     private func graduates(_ report: StatsReport, _ l: L) -> some View {
         let all = report.graduated
-        let pageCount = Paging.pageCount(all.count, size: Self.graduatesPerPage)
-        let current = Paging.clamped(graduatesPage, count: all.count, size: Self.graduatesPerPage)
-        let shown = Paging.slice(all, page: current, size: Self.graduatesPerPage)
-        let turn = Binding<Int>(get: { current }, set: { graduatesPage = $0 })
         return VStack(alignment: .leading, spacing: 10) {
             HStack {
                 SectionTitle(text: l.recapGraduates, systemImage: "graduationcap.fill")
@@ -348,7 +336,7 @@ struct StatsScreen: View {
                 Text(l.recapNoGraduates).font(.caption).foregroundStyle(.secondary)
             } else {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 4), count: 5), spacing: 8) {
-                    ForEach(shown, id: \.id) { entry in
+                    ForEach(all, id: \.id) { entry in
                         VStack(spacing: 2) {
                             SpriteView(speciesID: entry.finalID, size: 40, shiny: entry.isShiny, form: entry.form,
                                        sameScale: true)
@@ -367,9 +355,6 @@ struct StatsScreen: View {
                         .speciesNameTooltip(entry.finalID, form: entry.form, language: companion.language)
                     }
                 }
-                .pagedByScrollWheel(page: turn, pageCount: pageCount)
-                PageControl(page: turn, pageCount: pageCount, l: l)
-                    .frame(maxWidth: .infinity)
             }
         }
         .designCard()

@@ -1,6 +1,6 @@
 import Foundation
 
-/// The words of the paged Achievements, Costumes and Stats screens (#183).
+/// The words of the Achievements and Stats screens (#183).
 extension L {
     // MARK: Achievements
 
@@ -27,14 +27,6 @@ extension L {
                  "Uma região é resgatada quando todos os Pokémon dela do tipo estão formados; cada uma faz os Pokémon vulneráveis a esse tipo crescerem \(step)% mais rápido. Passe o cursor numa região para ver a contagem.",
                  "Eine Region gibt es, sobald alle ihre Pokémon dieses Typs verabschiedet sind; jede lässt Pokémon mit dieser Schwäche \(step) % schneller wachsen. Fahre über eine Region für ihren Stand.",
                  "Регион можно получить, когда все его покемоны этого типа выпущены; каждый ускоряет рост покемонов, уязвимых к этому типу, на \(step)%. Наведите на регион, чтобы увидеть счёт.")
-    }
-
-    // MARK: Costumes
-
-    /// The menu that jumps to a month's lot.
-    var costumeChooseMonth: String {
-        t("달 고르기", "Choose a month", "月を選ぶ", "Elegir un mes", "Choisir un mois", "Escolher um mês", "Monat wählen",
-          "Выбрать месяц")
     }
 
     // MARK: Stats

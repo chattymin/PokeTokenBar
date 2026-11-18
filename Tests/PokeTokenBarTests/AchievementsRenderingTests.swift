@@ -179,6 +179,36 @@ final class AchievementsRenderingTests: XCTestCase {
         XCTAssertEqual(picker.items()[2].title, "Trainer")
     }
 
+    /// Home opens an achievement low in its section's list (the Excavation, after every stone): the list is scrolled
+    /// to its card, which pages had done by opening its page. Opened from the tab, the list stays at its top.
+    func testAnAchievementOpenedFromHomeIsScrolledTo() async throws {
+        let store = try store(registering: [])
+        func listOffset(_ nav: PopoverNavigation) async throws -> CGFloat {
+            let host = NSHostingView(rootView: AchievementsView(store: store, nav: nav)
+                .frame(width: PopoverMetrics.contentWidth))
+            let size = NSSize(width: PopoverMetrics.contentWidth, height: 520)
+            host.frame = NSRect(origin: .zero, size: size)
+            let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
+                                  styleMask: .borderless, backing: .buffered, defer: false)
+            window.isReleasedWhenClosed = false
+            window.contentView = host
+            window.orderFront(nil)
+            defer { window.close() }
+            try await Task.sleep(for: .milliseconds(500))
+            host.layoutSubtreeIfNeeded()
+            let list = try XCTUnwrap(descendants(of: host, NSScrollView.self).first)
+            return list.contentView.bounds.minY
+        }
+
+        let fromHome = PopoverNavigation()
+        fromHome.openAchievement(.excavation)
+        let scrolled = try await listOffset(fromHome)
+        XCTAssertGreaterThan(scrolled, 100, "the Excavation's card scrolled into view")
+        XCTAssertNil(fromHome.achievementFocus, "the focus is used once")
+        let fromTab = try await listOffset(PopoverNavigation())
+        XCTAssertEqual(fromTab, 0, accuracy: 0.5, "the section opens at its top")
+    }
+
     private func descendants<T: NSView>(of view: NSView, _ type: T.Type) -> [T] {
         view.subviews.compactMap { $0 as? T } + view.subviews.flatMap { descendants(of: $0, type) }
     }

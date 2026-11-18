@@ -7,11 +7,6 @@ struct BagView: View {
     let nav: PopoverNavigation
     /// The Bag's own height: what `BagHubView` leaves under its switch.
     var height: CGFloat = 520
-    /// Each paged tab's page.
-    @State private var pages: [Section: Int] = [:]
-    /// The paged cards' heights, measured unseen (`cardMeasures`), and the height a page of them may fill.
-    @State private var cardHeights: [ItemKind: CGFloat] = [:]
-    @State private var cardArea: CGFloat = 0
     /// What the last Explorer's Chest held: shown above the dungeons' items, the chest gone with its last.
     @State private var chestFound: (kind: ItemKind, count: Int)?
 
@@ -29,18 +24,6 @@ struct BagView: View {
             case .gymBadges?: return .badges
             case .legendaryArtifacts?, .forms?: return .artifacts
             case .evolutionStones?, nil: return section == .dungeons ? .dungeons : .raising
-            }
-        }
-
-        /// How many to a page at most (#183), as the validated mockup cut them; fewer when they do not fit
-        /// (`BagView.pageRanges`). Nil for the raising tab, a list that scrolls, its eggs' cards growing with their
-        /// odds and confirmations.
-        var pageSize: Int? {
-            switch self {
-            case .raising: nil
-            case .dungeons: 4
-            case .badges: 12
-            case .artifacts: 3
             }
         }
     }
@@ -96,82 +79,27 @@ struct BagView: View {
                         .reservesScrollerLane()
                     }
                 } else {
-                    pagedList(current, kinds: items.map(\.kind).sorted(by: CompanionStore.bagOrdered),
-                              counts: Dictionary(items.map { ($0.kind, $0.count) }, uniquingKeysWith: +))
+                    // The dungeons' items, the badges or the artifacts: every one in a list that scrolls, as the
+                    // raising tab, each tab from its top.
+                    ScrollView {
+                        VStack(alignment: .leading, spacing: 8) {
+                            if current == .dungeons, let found = chestFound { chestBanner(found) }
+                            let sorted: [(kind: ItemKind, count: Int)] = items.sorted {
+                                CompanionStore.bagOrdered($0.kind, $1.kind)
+                            }
+                            if current == .badges {
+                                badgeGrid(sorted.map(\.kind))
+                            } else {
+                                itemCards(sorted)
+                            }
+                        }
+                        .reservesScrollerLane()
+                    }
+                    .id(current)
                 }
             }
             .frame(height: height)
         }
-    }
-
-    /// A tab of pages (#183): the dungeons' items, the badges or the artifacts, the scroll wheel turning the pages as on
-    /// the Pokédex grid. The badges' tiles are alike, so twelve a page; a card's height depends on its text and its
-    /// language, so a page of cards holds as many as fit under the chest's banner, up to the tab's `pageSize`.
-    @ViewBuilder
-    private func pagedList(_ tab: Section, kinds: [ItemKind], counts: [ItemKind: Int]) -> some View {
-        let banner = tab == .dungeons ? chestFound : nil
-        let limit = tab.pageSize ?? max(1, kinds.count)
-        let ranges = tab == .badges
-            ? Self.pageRanges(heights: kinds.map { _ in 0 }, available: .infinity, spacing: 8, limit: limit)
-            : Self.pageRanges(heights: kinds.map { cardHeights[$0] ?? 0 }, available: cardArea > 0 ? cardArea : .infinity,
-                              spacing: 8, limit: limit)
-        let page = Binding(get: { min(max(0, pages[tab] ?? 0), ranges.count - 1) }, set: { pages[tab] = $0 })
-        let shown = Array(kinds[ranges[page.wrappedValue]])
-        VStack(alignment: .leading, spacing: 8) {
-            if let banner { chestBanner(banner) }
-            // The cards hang from the top of the space left, which they never resize: it is what a page may fill.
-            Color.clear
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-                .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardArea = $0 }
-                .overlay(alignment: .top) {
-                    if tab == .badges {
-                        badgeGrid(shown)
-                    } else {
-                        VStack(alignment: .leading, spacing: 8) {
-                            itemCards(shown.map { (kind: $0, count: counts[$0] ?? 0) })
-                        }
-                        .background(alignment: .top) { cardMeasures(kinds, counts: counts) }
-                    }
-                }
-        }
-        .reservesScrollerLane()
-        .contentShape(Rectangle())
-        .pagedByScrollWheel(page: page, pageCount: ranges.count)
-        PageControl(page: page, pageCount: ranges.count, l: store.l)
-            .frame(maxWidth: .infinity)
-    }
-
-    /// Every card of the tab laid out unseen at the cards' width, for its height (`cardHeights`).
-    private func cardMeasures(_ kinds: [ItemKind], counts: [ItemKind: Int]) -> some View {
-        VStack(spacing: 0) {
-            ForEach(kinds, id: \.self) { kind in
-                ItemCard(store: store, nav: nav, kind: kind, count: counts[kind] ?? 0)
-                    .fixedSize(horizontal: false, vertical: true)
-                    .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { cardHeights[kind] = $0 }
-            }
-        }
-        .hidden()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
-    }
-
-    /// The pages of cards of `heights`: at most `limit` a page, each as many as fit in `available` with `spacing`
-    /// between them. A card taller than a page has one to itself; no card, one empty page.
-    static func pageRanges(heights: [CGFloat], available: CGFloat, spacing: CGFloat, limit: Int) -> [Range<Int>] {
-        var ranges: [Range<Int>] = []
-        var start = 0
-        var used: CGFloat = 0
-        for (index, height) in heights.enumerated() {
-            if index > start, index - start >= limit || used + spacing + height > available {
-                ranges.append(start..<index)
-                start = index
-                used = height
-            } else {
-                used += (index > start ? spacing : 0) + height
-            }
-        }
-        ranges.append(start..<heights.count)
-        return ranges
     }
 
     /// The raising tab's sections in the Bag's order (the candies first, then the Shop's), empty ones left out; the

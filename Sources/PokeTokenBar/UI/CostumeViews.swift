@@ -42,54 +42,26 @@ struct CostumeEggCard: View {
 }
 
 /// The costumed Pokémon collected (the owner, 2026-11-13): the counts, this month's event and the next Costume Egg,
-/// then one month's lot a page (#183), this month's first, twenty Pokémon a page, the ones collected in their costume
-/// and named, the others in silhouette. The month's name opens a menu of the months; the pager turns the lot's pages,
-/// then the next month's.
+/// then each month's lot under its month, this month's first, all in one list: the ones collected in their costume and
+/// named, the others in silhouette.
 @MainActor
 struct CostumeCollectionScreen: View {
     let store: CompanionStore
     let onBack: () -> Void
-    /// The page shown among every lot's pages, this month's lot first.
-    @State private var page = 0
 
-    /// A sprite's size: four rows of five fit under the rings and the event, with their names.
+    /// A sprite's size, five to a row with their names.
     private static let cell: CGFloat = 40
-    /// Costumed Pokémon on a page: four rows of five.
-    nonisolated static let pageSize = 20
 
-    /// A page of a month's lot: its month, its place in the lot and the lot's number of pages.
-    struct LotPage: Equatable {
-        let month: Int
-        let index: Int
-        let count: Int
-
-        var entries: [CostumeEntry] {
-            Paging.slice(CostumeCatalog.lot(month: month), page: index, size: CostumeCollectionScreen.pageSize)
-        }
-    }
-
-    /// Every lot's pages, from `month`'s lot on, around the year.
-    static func pages(from month: Int) -> [LotPage] {
-        (0..<12).map { (month - 1 + $0) % 12 + 1 }.flatMap { lotMonth in
-            let count = Paging.pageCount(CostumeCatalog.lot(month: lotMonth).count, size: pageSize)
-            return (0..<count).map { LotPage(month: lotMonth, index: $0, count: count) }
-        }
-    }
-
-    /// The first page of `month`'s lot: where the month menu leads.
-    static func firstPage(of month: Int, in pages: [LotPage]) -> Int {
-        pages.firstIndex { $0.month == month } ?? 0
+    /// The lots' months, from `month`'s on, around the year.
+    static func lotMonths(from month: Int) -> [Int] {
+        (0..<12).map { (month - 1 + $0) % 12 + 1 }
     }
 
     var body: some View {
         let l = store.l
         let owned = store.ownedCostumeKeys()
         let month = store.costumeMonth
-        let pages = Self.pages(from: month)
-        let current = min(max(0, page), pages.count - 1)
-        let shown = pages[current]
-        let turn = Binding<Int>(get: { current }, set: { page = $0 })
-        VStack(alignment: .leading, spacing: 6) {
+        VStack(alignment: .leading, spacing: 8) {
             HStack(spacing: 6) {
                 Button { onBack() } label: { Label(l.back, systemImage: "chevron.left").labelStyle(.titleAndIcon) }
                     .buttonStyle(.borderless)
@@ -98,27 +70,22 @@ struct CostumeCollectionScreen: View {
                 Image(systemName: "theatermasks.fill").foregroundStyle(.secondary)
                 Text(l.costumesTitle).font(.headline).lineLimit(1).minimumScaleFactor(0.8)
             }
-            HStack(spacing: 4) {
-                StatsRing(title: l.costumesTitle, owned: owned.all.count, total: CostumeCatalog.entries.count,
-                          color: CollectionStatsScreen.done)
-                StatsRing(title: l.dexStatsShinies, owned: owned.shiny.count, total: CostumeCatalog.entries.count,
-                          color: CollectionStatsScreen.left)
-            }
-            .frame(maxWidth: .infinity)
-            nextEgg(month, l)
-            lotHeader(shown, pages: pages, owned: owned.all, current: shown.month == month, l)
-            PagedArea(page: turn, pageCount: pages.count) {
-                LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 5), alignment: .leading,
-                          spacing: 2) {
-                    ForEach(shown.entries, id: \.key) { entry in
-                        cell(entry, owned: owned.all.contains(entry.key), shiny: owned.shiny.contains(entry.key), l)
+            ScrollView {
+                VStack(alignment: .leading, spacing: 12) {
+                    HStack(spacing: 4) {
+                        StatsRing(title: l.costumesTitle, owned: owned.all.count, total: CostumeCatalog.entries.count,
+                                  color: CollectionStatsScreen.done)
+                        StatsRing(title: l.dexStatsShinies, owned: owned.shiny.count,
+                                  total: CostumeCatalog.entries.count, color: CollectionStatsScreen.left)
+                    }
+                    .frame(maxWidth: .infinity)
+                    nextEgg(month, l)
+                    ForEach(Self.lotMonths(from: month), id: \.self) { lotMonth in
+                        lot(lotMonth, owned: owned, current: lotMonth == month, l)
                     }
                 }
+                .reservesScrollerLane()
             }
-            .frame(maxHeight: .infinity, alignment: .top)
-            PageControl(page: turn, pageCount: pages.count, l: l,
-                        caption: "\(l.monthName(shown.month)) · \(shown.index + 1) / \(shown.count)")
-                .frame(maxWidth: .infinity)
         }
         .padding(PopoverMetrics.padding)
         .frame(height: 520, alignment: .top)
@@ -144,38 +111,25 @@ struct CostumeCollectionScreen: View {
         .designSurface(cornerRadius: Design.cornerRadius)
     }
 
-    /// The lot's month (its menu), event, "this month" and count.
-    private func lotHeader(_ shown: LotPage, pages: [LotPage], owned: Set<String>, current: Bool, _ l: L) -> some View {
-        let lot = CostumeCatalog.lot(month: shown.month)
-        let have = lot.filter { owned.contains($0.key) }.count
-        return HStack(alignment: .firstTextBaseline, spacing: 6) {
-            monthMenu(shown.month, pages: pages, l)
-            Text(l.costumeEventName(shown.month)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
-            if current { Badge(l.costumeNowBadge.uppercased(), tint: .blue, style: .tinted) }
-            Spacer(minLength: 4)
-            Text("\(have)/\(lot.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
-        }
-    }
-
-    /// The month's name, which opens the twelve months to jump to one's lot.
-    private func monthMenu(_ month: Int, pages: [LotPage], _ l: L) -> some View {
-        Menu {
-            ForEach(Array((0..<12).map { (store.costumeMonth - 1 + $0) % 12 + 1 }), id: \.self) { choice in
-                Button { page = Self.firstPage(of: choice, in: pages) } label: {
-                    HStack {
-                        Text("\(l.monthName(choice)) · \(l.costumeEventName(choice))")
-                        if choice == month { Image(systemName: "checkmark") }
-                    }
+    /// A month's lot: its month, event, "this month" and count, then its costumed Pokémon.
+    private func lot(_ month: Int, owned: (all: Set<String>, shiny: Set<String>), current: Bool, _ l: L) -> some View {
+        let entries = CostumeCatalog.lot(month: month)
+        let have = entries.filter { owned.all.contains($0.key) }.count
+        return VStack(alignment: .leading, spacing: 6) {
+            HStack(alignment: .firstTextBaseline, spacing: 6) {
+                Text(l.monthName(month)).font(.subheadline.weight(.semibold))
+                Text(l.costumeEventName(month)).font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                if current { Badge(l.costumeNowBadge.uppercased(), tint: .blue, style: .tinted) }
+                Spacer(minLength: 4)
+                Text("\(have)/\(entries.count)").font(.caption.monospacedDigit()).foregroundStyle(.secondary)
+            }
+            LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 2), count: 5), alignment: .leading,
+                      spacing: 2) {
+                ForEach(entries, id: \.key) { entry in
+                    cell(entry, owned: owned.all.contains(entry.key), shiny: owned.shiny.contains(entry.key), l)
                 }
             }
-        } label: {
-            Text(l.monthName(month)).font(.subheadline.weight(.semibold))
         }
-        .menuStyle(.borderlessButton)
-        .menuIndicator(.visible)
-        .fixedSize()
-        .hoverTip(l.costumeChooseMonth)
-        .accessibilityLabel(l.costumeChooseMonth)
     }
 
     /// A costumed Pokémon: in its costume and named once collected, its shape and "???" until then; a shiny one wears
