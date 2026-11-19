@@ -451,6 +451,14 @@ enum PokemonOdds {
     static let dittoDisguiseDenominator: UInt64 = 128
     /// 메타몽 종 id — 위장 리빌 전용(일반 부화 풀에서 제외).
     static let dittoSpeciesID = 132
+    /// Pity: after this many repeat hatches in a row, the next egg is drawn only among bases with no
+    /// collected final (still weighted by capture rate). It bounds droughts without touching the normal
+    /// odds — the collected-base ½ weight stays (#254 kept it so re-hatch and shiny hunting stay open).
+    /// Why a cap and not a smaller multiplier: the ½ penalty scales with capture rate, so a collected
+    /// common (255→127) still outweighs an uncollected legendary (3) ~40×. On a measured late-game save
+    /// (292 of 328 lines graduated) 48 of the last 50 hatches were repeats and the next egg was new only
+    /// 5.2% of the time; 1/10 lifts that to 21.7% and 1/50 only to 59.4%. See #253.
+    static let repeatHatchPityThreshold = 5
 }
 
 /// Prayers said over an egg, carried onto the individual that hatched from it.
