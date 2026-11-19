@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-19", entries: [
+            .improved("2026-11-19-rocket-untouchable", { $0.t("로켓단은 절대 붙잡을 수 없어요. 쫓아가면 비주기가 비웃으며 아지트로 오라고 해요. 훔친 물건은 로켓단 아지트에서 되찾으세요.",
+                                                              "Team Rocket can never be caught: give chase and Giovanni laughs, telling you to come to his place. Take the item back at Team Rocket's hideout.",
+                                                              "ロケット団は決して捕まえられません。追いかけるとサカキが笑い、アジトまで来いと言います。盗まれた物はロケット団のアジトで取り返しましょう。",
+                                                              "Al Team Rocket nunca se le atrapa: si lo persigues, Giovanni se ríe y te dice que vayas a verle a su guarida. Recupera el objeto en la guarida del Team Rocket.",
+                                                              "La Team Rocket ne se fait jamais attraper : si tu la poursuis, Giovanni éclate de rire et te dit de venir le voir chez lui. Reprends l'objet dans le repaire de la Team Rocket.",
+                                                              "A Equipe Rocket nunca é pega: se você a perseguir, Giovanni ri e diz para ir vê-lo no esconderijo dele. Recupere o item no esconderijo da Equipe Rocket.",
+                                                              "Team Rocket lässt sich nie fangen: Verfolgst du sie, lacht Giovanni und sagt, du sollst ihn in seinem Versteck besuchen. Hol dir den Gegenstand im Versteck von Team Rocket zurück.",
+                                                              "Команду R никогда не поймать: если погнаться за ней, Джованни смеётся и зовёт тебя к себе в убежище. Верни предмет в убежище Команды R.") }),
             .improved("2026-11-19-past-costume-eggs", { $0.t("이번 달 코스튬을 모두 채우면, 다음 코스튬 알은 아직 없는 코스튬이 남은 가장 최근의 지난 이벤트에서 나와요. 지나간 이벤트를 1년 기다릴 필요가 없어요.",
                                                              "Once this month's costumes are covered, the next Costume Eggs come from the latest past event still missing some: no need to wait a year for an event you missed.",
                                                              "今月のコスチュームが足りたら、次のコスチュームのタマゴは、まだ足りないコスチュームがある一番最近の過去のイベントから出ます。逃したイベントを1年待つ必要はありません。",

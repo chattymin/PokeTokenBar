@@ -26,6 +26,9 @@ struct VillainAmbushCard: View {
     let nav: PopoverNavigation
     let ambush: VillainAmbush
 
+    /// Team Rocket chased: never caught, Giovanni laughs instead of a fight (`defendAgainstAmbush`).
+    private var rocketTaunts: Bool { ambush.team == .rocket && ambush.won == false && ambush.battle == nil }
+
     private static let bustWidth: CGFloat = 84
     private static let bustHeight: CGFloat = 96
     private static let tail: CGFloat = 6
@@ -42,7 +45,9 @@ struct VillainAmbushCard: View {
                         .frame(minHeight: Self.bustHeight, alignment: .top)
                         .padding(.leading, Self.bustWidth + 4)
                         .background(alignment: .topLeading) {
-                            PortraitBust(name: ambush.team.gruntPortrait, width: Self.bustWidth, symbol: "exclamationmark.triangle")
+                            // Team Rocket chased: Giovanni himself answers (the owner, 2026-11-19).
+                            PortraitBust(name: rocketTaunts ? ambush.team.leaderPortrait : ambush.team.gruntPortrait,
+                                         width: Self.bustWidth, symbol: "exclamationmark.triangle")
                                 .frame(width: Self.bustWidth).frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                                 .clipped()
                         }
@@ -100,6 +105,9 @@ struct VillainAmbushCard: View {
         return VStack(alignment: .leading, spacing: 6) {
             switch ambush.won {
             case true?: Text(l.villainBeaten(ambush.team, item: item)).font(.callout.weight(.semibold))
+            case false? where rocketTaunts:
+                Text(l.villainRocketTaunt).font(.callout.weight(.semibold))
+                Text(l.villainGotAway(ambush.team, item: item)).font(.caption).foregroundStyle(.secondary)
             case false?: Text(l.villainGotAway(ambush.team, item: item)).font(.callout.weight(.semibold))
             case nil: Text(l.villainAmbushBubble).font(.callout)
             }

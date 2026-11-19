@@ -77,6 +77,18 @@ extension L {
                  "\(n) fliegt davon! Zurückgeholt: \(item).", "\(n) улетает прочь! Вы вернули: \(item).")
     }
 
+    /// Giovanni, when the player gives chase to Team Rocket, which is never caught (the owner, 2026-11-19).
+    var villainRocketTaunt: String {
+        t("하하하하... 정말 나를 이길 수 있다고 생각하나? 내 아지트로 찾아와라.",
+          "Hahahaha... You really think you can beat me? Come and see me at my place.",
+          "ハハハハ…本気でわたしに勝てると思っているのか？わたしのアジトまで来るがいい。",
+          "Jajajaja... ¿De verdad crees que puedes vencerme? Ven a verme a mi guarida.",
+          "Hahahaha... Tu crois vraiment pouvoir me battre ? Viens donc me voir chez moi.",
+          "Hahahaha... Você acha mesmo que pode me vencer? Venha me ver no meu esconderijo.",
+          "Hahahaha... Glaubst du wirklich, du kannst mich schlagen? Komm mich in meinem Versteck besuchen.",
+          "Ха-ха-ха-ха... Ты правда думаешь, что можешь меня победить? Приходи ко мне в убежище.")
+    }
+
     func villainGotAway(_ team: VillainTeam, item: String) -> String {
         let n = villainTeamName(team)
         return t("\(KoreanParticle.subject.attach(to: n)) 도망쳤어요: \(item). 던전 탭의 아지트에서 되찾으세요.",
