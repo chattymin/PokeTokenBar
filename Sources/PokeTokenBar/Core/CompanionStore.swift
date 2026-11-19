@@ -1793,6 +1793,11 @@ final class CompanionStore {
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
+        // Pity counter — same predicate as the growth boost, decided once here: every hatch path (prepared
+        // or freshly rolled egg, Ditto disguise, overflow carry-over) converges on this line after the discard
+        // guards above. The next egg is only rolled after this Pokémon leaves (graduation or a bought egg),
+        // so that roll always sees the updated streak.
+        state.repeatHatchStreak = hasGrowthBoost ? state.repeatHatchStreak + 1 : 0
         let form = pendingForm ?? rollLineForm(baseID: line.baseID)
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
@@ -1801,7 +1806,7 @@ final class CompanionStore {
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
                                 dittoDisguise: dittoDisguise, form: form, prayers: prayers)
-        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
+        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) streak=\(state.repeatHatchStreak) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
                                    speciesID: line.baseID, form: form)
         let hatchBody: String
@@ -1854,6 +1859,7 @@ final class CompanionStore {
         m.dittoRevealed = true
         m.form = nil
         // The hatch boost came from the disguise's line; from now on only a repeat Ditto earns it.
+        // `repeatHatchStreak` is not reclassified: it was decided once at hatch from the line the roll drew.
         m.hasGrowthBoost = state.hasCollectedFinal(forBaseID: dittoLine.baseID)
         m.profile?.rebaseForSpeciesIdentity(from: previousRarity, to: dittoLine.rarity)
         if let details = pokemonDetailsByID[dittoLine.baseID] {

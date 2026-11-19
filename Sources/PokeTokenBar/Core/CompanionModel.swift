@@ -702,6 +702,11 @@ struct CompanionState: Codable, Sendable {
     var notifiedDexCompletions: Set<String> = []
     // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
     var dexCompletionsSeeded = false
+    /// Consecutive hatches whose base already had a collected final (the `hasGrowthBoost` predicate).
+    /// Decided once per hatch in `hatchCore`: a repeat adds one, a new line resets it to 0. `chooseBase`
+    /// reads it for the pity draw (`PokemonOdds.repeatHatchPityThreshold`). Progress — it travels with a
+    /// save; older builds ignore the key and a save without it decodes to 0.
+    var repeatHatchStreak = 0
 
     init() {}
 
@@ -745,6 +750,7 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
         dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
+        repeatHatchStreak  = c.lenient(Int.self, forKey: .repeatHatchStreak, default: 0)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

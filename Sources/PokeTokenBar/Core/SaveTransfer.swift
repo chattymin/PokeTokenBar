@@ -154,6 +154,8 @@ enum SaveTransfer {
         // 그 보증으로 미리 뽑아둔 종(pendingHatchID)도 함께 버린다 — 보증만 지우면 졸업 후 받는 **무료**
         // 알이 그 pre-roll 로 부화해, 아무도 사지 않은 프리미엄 결과가 나온다.
         if s.active != nil { s.eggTier = nil; s.pendingHatchID = nil; s.resetEggPrayers() }
+        // hatchCore increments it, so an absurd saved streak must not trap; a negative one would delay pity.
+        s.repeatHatchStreak = clampToken(s.repeatHatchStreak)
         if var prayers = s.eggPrayers {   // pray() increments it, so an absurd saved count must not trap
             prayers.count = clampToken(prayers.count)
             s.eggPrayers = prayers
@@ -196,8 +198,10 @@ enum SaveTransfer {
     ///
     /// `CompanionState` 의 필드는 이전 관점에서 세 부류다.
     ///  - **진행**: 어느 기기에서든 참(`usedSinceInstall`·`dex`·`inventory`·`active`·`eggUsage`·`eggTier`·
-    ///    `pendingHatchID`·`pendingForm`·`eggPrayers`·`representativeSpeciesID`·`representativeForm`…)
+    ///    `pendingHatchID`·`pendingForm`·`eggPrayers`·`representativeSpeciesID`·`representativeForm`·
+    ///    `repeatHatchStreak`…)
     ///    → 그대로. 알 보증(`eggTier`)은 산 물건이지 이 기기의 장부가 아니라 기기를 옮겨도 따라간다.
+    ///    The pity streak describes this save's hatch history, not the device, so it travels too.
     ///  - **로컬 장부**: *그 기기가* 어디까지 적립했나(`claimedTodayTokensByProvider`·`lastDate`·`installBaselineSet`)
     ///    → 새 기기 기준으로 다시 잡는다. 그대로 들여오면 옛 기기의 오늘 총량이 문턱이 되어
     ///    `CompanionStore.update` 의 프로바이더별 증분 게이트가 이전 당일 내내 거짓이 되고,
