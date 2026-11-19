@@ -1678,10 +1678,12 @@ final class CompanionStore {
     }
 
     /// Draws only for lines with forms, so other species keep their random sequence.
+    /// One draw covers both the factor (Gigantamax) check and the regular form.
     private func rollLineForm(baseID: Int) -> PokemonForm? {
         let forms = PokemonForm.lineForms(baseID: baseID)
         guard !forms.isEmpty else { return nil }
-        return PokemonForm.roll(rng.next(), among: forms, collected: state.collectedLineForms(baseID: baseID))
+        return PokemonForm.roll(rng.next(), among: forms, factors: PokemonForm.factorForms(baseID: baseID),
+                                collected: state.collectedLineForms(baseID: baseID))
     }
 
     /// Warms the localized names the hatch, evolution and graduation messages of this line show.

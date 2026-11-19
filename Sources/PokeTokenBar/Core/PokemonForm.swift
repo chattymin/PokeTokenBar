@@ -24,30 +24,69 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
 
     // MARK: Catalog
 
+    /// Where a form's animated GIF lives on the PokeAPI sprites repository.
+    enum AnimatedSource: Sendable {
+        /// Gen V Black/White, named like the cache (`492-sky.gif`). Every regular form is here.
+        case blackWhite
+        /// Showdown, named by the variety id (`10196.gif`). Gen V never had Gigantamax, so its
+        /// animation only exists here. Back GIFs are missing for some (10195, 10197); the existing
+        /// 404 back-to-front fallback covers them.
+        case showdown
+    }
+
+    /// Form names the app localizes itself, for forms whose PokéAPI `form_names` miss most of the
+    /// app's languages (Gigantamax: only en/ja/fr/de, so ko/es/pt/ru would fall back to English).
+    enum AppLabel: Sendable {
+        case gigantamax
+    }
+
     /// `pokemonID` is the PokéAPI variety whose static PNG holds this form (`10006.png` for Sky
     /// Shaymin); nil means the static sprite is named like the animated one (`412-sandy.png`).
     /// `formID` is the PokéAPI `pokemon-form` resource that carries the localized form names.
+    /// `isFactor` marks an individual trait with fixed odds (`factorDenominator`) instead of a
+    /// collection-weighted form, like the Gigantamax Factor.
     struct Entry: Sendable {
         let form: PokemonForm
         let formID: Int
         let pokemonID: Int?
+        let isFactor: Bool
+        let animatedSource: AnimatedSource
+        let appLabel: AppLabel?
 
-        init(_ rawValue: String, formID: Int, pokemonID: Int? = nil) {
+        init(_ rawValue: String, formID: Int, pokemonID: Int? = nil, isFactor: Bool = false,
+             animatedSource: AnimatedSource = .blackWhite, appLabel: AppLabel? = nil) {
             form = PokemonForm(rawValue)
             self.formID = formID
             self.pokemonID = pokemonID
+            self.isFactor = isFactor
+            self.animatedSource = animatedSource
+            self.appLabel = appLabel
+        }
+
+        /// Gigantamax is a rare factor of the individual, animated only on Showdown and labelled by the app.
+        static func gigantamax(formID: Int, pokemonID: Int) -> Entry {
+            Entry("gmax", formID: formID, pokemonID: pokemonID, isFactor: true, animatedSource: .showdown,
+                  appLabel: .gigantamax)
         }
     }
 
     /// Every catalogued species lists its default appearance first; that one keeps the plain
-    /// `<id>.png`/`<id>.gif` sprites. Only forms with a Gen V animated sprite are listed, the same
-    /// source that bounds hatchable species. Gender differences are not forms.
+    /// `<id>.png`/`<id>.gif` sprites. Only forms with an animated sprite are listed: Gen V for
+    /// regular forms (the same source that bounds hatchable species), Showdown for Gigantamax.
+    /// Gender differences are not forms.
     static let catalog: [Int: [Entry]] = {
         let letters = "abcdefghijklmnopqrstuvwxyz".map(String.init) + ["exclamation", "question"]
         let unown = letters.enumerated().map { index, letter in
             Entry(letter, formID: index == 0 ? unownSpeciesID : 10000 + index)
         }
-        return [
+        // Species id → (pokemon-form id, variety id) of its Gigantamax form, Gen 1–5 only.
+        // The default form is named `normal`: PokéAPI's default form of these species has no name.
+        let gigantamax: [Int: (formID: Int, pokemonID: Int)] = [
+            3: (10364, 10195), 6: (10365, 10196), 9: (10366, 10197), 12: (10367, 10198), 25: (10368, 10199),
+            52: (10369, 10200), 68: (10370, 10201), 94: (10371, 10202), 99: (10372, 10203),
+            131: (10373, 10204), 133: (10374, 10205), 143: (10375, 10206), 569: (10376, 10207),
+        ]
+        var catalog: [Int: [Entry]] = [
             unownSpeciesID: unown,
             351: [.init("normal", formID: 351), .init("sunny", formID: 10028, pokemonID: 10013),
                   .init("rainy", formID: 10029, pokemonID: 10014), .init("snowy", formID: 10030, pokemonID: 10015)],
@@ -86,11 +125,22 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
             649: [.init("normal", formID: 649), .init("douse", formID: 10075), .init("shock", formID: 10076),
                   .init("burn", formID: 10077), .init("chill", formID: 10078)],
         ]
+        // Appended after any regular forms, so a species with both keeps its own default first.
+        for (speciesID, ids) in gigantamax {
+            catalog[speciesID, default: [Entry("normal", formID: speciesID)]]
+                .append(.gigantamax(formID: ids.formID, pokemonID: ids.pokemonID))
+        }
+        return catalog
     }()
 
     /// Catalogued species whose line starts elsewhere. The individual's form is chosen at hatch,
     /// so Cherubi and Darumaka eggs already know which Cherrim or Darmanitan they will become.
-    private static let lineBaseIDs: [Int: Int] = [413: 412, 421: 420, 423: 422, 555: 554, 586: 585]
+    /// The base is the species PokéAPI lists without `evolves_from`, like the hatch index: Pichu for
+    /// Pikachu and Munchlax for Snorlax. Meowth, Lapras and Eevee are their own bases.
+    private static let lineBaseIDs: [Int: Int] = [
+        413: 412, 421: 420, 423: 422, 555: 554, 586: 585,
+        3: 1, 6: 4, 9: 7, 12: 10, 25: 172, 68: 66, 94: 92, 99: 98, 143: 446, 569: 568,
+    ]
 
     static func entries(speciesID: Int) -> [Entry] { catalog[speciesID] ?? [] }
 
@@ -135,15 +185,39 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
         return forms(speciesID: speciesID).firstIndex(of: form) ?? 0
     }
 
-    /// Chosen only after the species roll: uncollected forms weigh 2, collected forms weigh 1.
-    static func roll(_ roll: UInt64, among forms: [PokemonForm], collected: Set<PokemonForm>) -> PokemonForm {
-        let weights = forms.map { CollectionWeight.adjusted(2, isCollected: collected.contains($0)) }
+    /// Odds of a factor form such as Gigantamax: rarer than a regular form (which the collection
+    /// weighting hands out about every other hatch in a two-form line), still more common than a
+    /// shiny (1/64). The maintainer may tune it; it only changes how often factor lines hit.
+    static let factorDenominator: UInt64 = 16
+
+    /// Forms of the line that are factor traits rather than collection-weighted forms.
+    static func factorForms(baseID: Int) -> Set<PokemonForm> {
+        Set(formSpecies(baseID: baseID).flatMap { entries(speciesID: $0).filter(\.isFactor).map(\.form) })
+    }
+
+    /// Chosen only after the species roll, from one random value so a hatch consumes a single draw.
+    /// A line with factor forms first spends `roll % factorDenominator`: zero picks a factor (with
+    /// fixed odds, whether collected or not). Otherwise the remaining bits pick among the other
+    /// forms, where uncollected forms weigh 2 and collected forms weigh 1.
+    static func roll(_ roll: UInt64, among forms: [PokemonForm], factors: Set<PokemonForm> = [],
+                     collected: Set<PokemonForm>) -> PokemonForm {
+        let factorForms = forms.filter(factors.contains)
+        let regular = forms.filter { !factors.contains($0) }
+        var roll = roll
+        if !factorForms.isEmpty {
+            let factorHit = roll % factorDenominator == 0
+            roll /= factorDenominator
+            if factorHit { return factorForms[Int(roll % UInt64(factorForms.count))] }
+        }
+        let weights = regular.map { CollectionWeight.adjusted(2, isCollected: collected.contains($0)) }
         var remaining = Int(roll % UInt64(weights.reduce(0, +)))
-        for (form, weight) in zip(forms.dropLast(), weights) {
+        for (form, weight) in zip(regular.dropLast(), weights) {
             remaining -= weight
             if remaining < 0 { return form }
         }
-        return forms.last! // Any remaining roll belongs to the last form.
+        // Any remaining roll belongs to the last form. A line always has a regular form: the
+        // catalog's defaults are never factors.
+        return regular.last!
     }
 
     // MARK: Sprites and names
@@ -157,19 +231,31 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
         return "\(speciesID)-\(form.rawValue)"
     }
 
+    /// The catalog entry of the form this species shows. Nil for species without forms.
+    static func entry(speciesID: Int, form: PokemonForm?) -> Entry? {
+        let resolved = resolved(speciesID: speciesID, form: form)
+        return entries(speciesID: speciesID).first { $0.form == resolved }
+    }
+
     /// Static PNGs of forms that are separate PokéAPI varieties live under the variety id.
     static func staticAssetName(speciesID: Int, form: PokemonForm?) -> String {
-        let resolved = resolved(speciesID: speciesID, form: form)
-        if let pokemonID = entries(speciesID: speciesID).first(where: { $0.form == resolved })?.pokemonID {
-            return String(pokemonID)
-        }
+        if let pokemonID = entry(speciesID: speciesID, form: form)?.pokemonID { return String(pokemonID) }
         return assetName(speciesID: speciesID, form: form)
+    }
+
+    /// Folder (under `sprites/pokemon/`) and file name of the animated GIF. Showdown names files by
+    /// the variety id; the cache still uses `assetName` (`6-gmax`), so cache keys do not depend on it.
+    static func animatedAsset(speciesID: Int, form: PokemonForm?) -> (folder: String, name: String) {
+        let entry = entry(speciesID: speciesID, form: form)
+        if entry?.animatedSource == .showdown, let pokemonID = entry?.pokemonID {
+            return ("other/showdown/", String(pokemonID))
+        }
+        return ("versions/generation-v/black-white/animated/", assetName(speciesID: speciesID, form: form))
     }
 
     /// PokéAPI `pokemon-form` id holding the localized form names. Nil for species without forms.
     static func formID(speciesID: Int, form: PokemonForm?) -> Int? {
-        let resolved = resolved(speciesID: speciesID, form: form)
-        return entries(speciesID: speciesID).first { $0.form == resolved }?.formID
+        entry(speciesID: speciesID, form: form)?.formID
     }
 
     /// Unown always names its letter; other species name only a non-default form.
@@ -204,19 +290,23 @@ extension PokemonForm {
 
 extension PokemonForm {
     /// Castform, Rotom, Kyurem and Genesect have no official name for their usual look:
-    /// PokéAPI only says "Forme de Motisma" or nothing at all.
-    private static let unnamedDefaultSpecies: Set<Int> = [351, 479, 646, 649]
+    /// PokéAPI only says "Forme de Motisma" or nothing at all. The same goes for species whose only
+    /// other look is a factor such as Gigantamax: PokéAPI's default form of Charizard or Pikachu has
+    /// an empty `form_name` and no `form_names`.
+    private static let unnamedDefaultSpecies: Set<Int> = Set([351, 479, 646, 649]).union(
+        catalog.filter { $0.value.dropFirst().allSatisfy(\.isFactor) }.keys
+    )
 
     private static func hasUnnamedDefault(speciesID: Int, form: PokemonForm?) -> Bool {
         unnamedDefaultSpecies.contains(speciesID) && isDefault(form, speciesID: speciesID)
     }
 
     /// PokéAPI resource with the localized name of the form this species shows.
-    /// Unown and the unnamed usual looks need none.
+    /// Unown, the unnamed usual looks and forms the app labels itself need none.
     static func nameResource(speciesID: Int, form: PokemonForm?) -> PokemonNameResource? {
         guard speciesID != unownSpeciesID, !hasUnnamedDefault(speciesID: speciesID, form: form),
-              let id = formID(speciesID: speciesID, form: form) else { return nil }
-        return PokemonNameResource(kind: .pokemonForm, name: String(id))
+              let entry = entry(speciesID: speciesID, form: form), entry.appLabel == nil else { return nil }
+        return PokemonNameResource(kind: .pokemonForm, name: String(entry.formID))
     }
 
     /// Every form of the species, for pickers that label all of them.
@@ -232,6 +322,10 @@ extension PokemonForm {
         guard let form = resolved(speciesID: speciesID, form: form) else { return nil }
         if speciesID == unownSpeciesID { return form.symbol }
         if hasUnnamedDefault(speciesID: speciesID, form: form) { return L(language).normalForm }
+        switch entry(speciesID: speciesID, form: form)?.appLabel {
+        case .gigantamax: return L(language).gigantamaxForm
+        case nil: break
+        }
         let translations = nameResource(speciesID: speciesID, form: form).flatMap { names.names[$0] }
         return translations.flatMap(language.resolveName) ?? PokemonNameLocalization.identifier(form.rawValue)
     }

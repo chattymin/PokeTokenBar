@@ -357,6 +357,7 @@ final class UnownTests: XCTestCase {
     }
 
     /// 다른 종에는 추가 폼 롤이 없어야 이후 민트 등 기존 난수 결과도 바뀌지 않는다.
+    /// Pidgey: a line with a single look (Pikachu now has a Gigantamax form).
     func testNonUnownHatchDoesNotConsumeAnExtraRandomDraw() async throws {
         var original = CompanionState()
         original.inventory = ["mint": 1]
@@ -368,7 +369,7 @@ final class UnownTests: XCTestCase {
         let mintPool = PokemonNature.allCases.filter { $0 != nature }
         let nextNature = mintPool[Int(rng.next() % UInt64(mintPool.count))]
 
-        await s.hatch(baseID: 25)
+        await s.hatch(baseID: 16)
         XCTAssertNil(s.currentForm)
         XCTAssertEqual(s.currentIsShiny, shiny)
         XCTAssertEqual(s.currentNature, nature)
