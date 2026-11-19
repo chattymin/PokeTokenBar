@@ -380,6 +380,39 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertTrue(s.setRepresentativeSpeciesID(25, form: gmax))
     }
 
+    func testGridThumbnailKeepsShinyForGigantamaxCapableSpeciesOnly() throws {
+        func charizard(_ form: PokemonForm, shiny: Bool) -> DexEntry {
+            DexEntry(baseID: 4, finalID: 6, chainOrder: [4, 5, 6], rarity: .common, caughtAt: now,
+                     isShiny: shiny, nature: .brave, form: form)
+        }
+        func rotom(_ form: PokemonForm, shiny: Bool) -> DexEntry {
+            DexEntry(baseID: 479, finalID: 479, chainOrder: [479], rarity: .rare, caughtAt: now,
+                     isShiny: shiny, nature: .brave, form: form)
+        }
+        func thumbnails(_ state: CompanionState) throws -> [Int: Bool] {
+            let s = try store(state)
+            return Dictionary(uniqueKeysWithValues: s.dexSpecies.map { ($0.id, s.dexThumbnailIsShiny($0)) })
+        }
+        XCTAssertTrue(PokemonForm.hasOnlyFactorForms(speciesID: 6))
+        XCTAssertFalse(PokemonForm.hasOnlyFactorForms(speciesID: 479))
+        XCTAssertFalse(PokemonForm.hasOnlyFactorForms(speciesID: 16), "No forms at all")
+
+        var state = CompanionState()
+        state.dex = [charizard(normal, shiny: true), rotom(PokemonForm("normal"), shiny: true)]
+        XCTAssertEqual(try thumbnails(state), [4: true, 5: true, 6: true, 479: false],
+                       "Shiny usual Charizard stays shiny; Rotom keeps its default's normal colors (#376)")
+
+        state.dex = [charizard(normal, shiny: false), charizard(gmax, shiny: true)]
+        let s = try store(state)
+        XCTAssertEqual(s.dexSpecies.first { $0.id == 6 }?.isShiny, true, "The ✨ marker still shows")
+        XCTAssertEqual(try thumbnails(state)[6], false, "Only the Gigantamax form is shiny")
+
+        state.dex = []
+        state.active = MonState(baseID: 172, pathIDs: [172, 25], stageIndex: 1, usedAtStage: 0,
+                                rarity: .common, totalForms: 3, isShiny: true, form: normal)
+        XCTAssertEqual(try thumbnails(state), [172: true, 25: true], "The raised shiny Pikachu counts too")
+    }
+
     // MARK: Saves
 
     func testSavesWrittenBeforeGenericFormsKeepTheirUnownLetters() throws {

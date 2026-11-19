@@ -149,6 +149,13 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
 
     static func hasForms(speciesID: Int) -> Bool { catalog[speciesID] != nil }
 
+    /// Species whose only other looks are factors such as Gigantamax (Charizard, Pikachu…): their
+    /// default is the usual species look, not one form among several.
+    static func hasOnlyFactorForms(speciesID: Int) -> Bool {
+        let others = entries(speciesID: speciesID).dropFirst()
+        return !others.isEmpty && others.allSatisfy(\.isFactor)
+    }
+
     /// Species of the line that change appearance with the individual's form, in line order.
     static func formSpecies(baseID: Int) -> [Int] {
         catalog.keys.filter { (lineBaseIDs[$0] ?? $0) == baseID }.sorted()
@@ -301,7 +308,7 @@ extension PokemonForm {
     /// other look is a factor such as Gigantamax: PokéAPI's default form of Charizard or Pikachu has
     /// an empty `form_name` and no `form_names`.
     private static let unnamedDefaultSpecies: Set<Int> = Set([351, 479, 646, 649]).union(
-        catalog.filter { $0.value.dropFirst().allSatisfy(\.isFactor) }.keys
+        catalog.keys.filter(hasOnlyFactorForms(speciesID:))
     )
 
     private static func hasUnnamedDefault(speciesID: Int, form: PokemonForm?) -> Bool {

@@ -482,6 +482,18 @@ final class CompanionStore {
         dexSpecies.reduce(into: [:]) { links, species in links[species.id] = species.collectionID }
     }
 
+    /// Whether the main Pokédex grid draws this species' thumbnail shiny. Species with forms keep
+    /// their default form's normal colors (#376): the shiny may belong to another form, and the
+    /// detail page shows colors per form. Species whose only other looks are factors (Gigantamax)
+    /// were single-look species before, so they keep the shiny thumbnail when their default form
+    /// is owned shiny. A shiny owned only as Gigantamax keeps the normal default: drawing the
+    /// default in shiny colors would show an individual the player does not have.
+    func dexThumbnailIsShiny(_ species: DexSpecies) -> Bool {
+        guard species.isShiny else { return false }
+        guard PokemonForm.hasForms(speciesID: species.id) else { return true }
+        return PokemonForm.hasOnlyFactorForms(speciesID: species.id) && state.ownsShinySpecies(species.id)
+    }
+
     /// Collected form summaries for the detail picker; missing forms remain visible but disabled.
     func formSpecies(speciesID: Int) -> [DexSpecies] {
         guard PokemonForm.hasForms(speciesID: speciesID) else { return [] }
