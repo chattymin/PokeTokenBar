@@ -558,11 +558,11 @@ struct EvoLineView: View {
         return links[id]
     }
 
-    private func dexLinkModifier(forSpeciesID id: Int, isCollected: Bool) -> DexEntryLink {
+    private func dexLinkModifier(forSpeciesID id: Int, isCollected: Bool, form stageForm: PokemonForm? = nil) -> DexEntryLink {
         let target = (onOpenDexEntry != nil && isCollected) ? dexLinks[id] : nil
         var name: String?
         if let names, let raw = names[id] {
-            name = PokemonForm.displayName(raw, speciesID: id, form: form, label: nil)
+            name = PokemonForm.displayName(raw, speciesID: id, form: stageForm ?? form, label: nil)
         }
         return DexEntryLink(target: target, hint: L(language).dexOpenEntryHint,
                             accessibilityName: name, cornerRadius: 6, open: onOpenDexEntry)
@@ -572,7 +572,7 @@ struct EvoLineView: View {
         guard case .species(let id) = node.content else {
             return DexEntryLink(target: nil, hint: "", accessibilityName: nil, cornerRadius: 6, open: onOpenDexEntry)
         }
-        return dexLinkModifier(forSpeciesID: id, isCollected: node.state != .uncaught)
+        return dexLinkModifier(forSpeciesID: id, isCollected: node.state != .uncaught, form: node.form)
     }
 
     private func drawsShiny(_ speciesID: Int) -> Bool {
@@ -591,8 +591,9 @@ struct EvoLineView: View {
                 switch node.content {
                 case .species(let id):
                     let uncaught = node.state == .uncaught
+                    let stageForm = node.form ?? form
                     VStack(spacing: 1) {
-                        SpriteView(speciesID: id, size: thumb, shiny: drawsShiny(id) && !uncaught, form: form,
+                        SpriteView(speciesID: id, size: thumb, shiny: drawsShiny(id) && !uncaught, form: stageForm,
                                    isSilhouette: uncaught, sameScale: true, bottomAligned: bottomAligned)
                             .opacity(node.state == .future ? 0.32 : 1)
                             .saturation(node.state == .future ? 0.4 : 1)
@@ -604,7 +605,7 @@ struct EvoLineView: View {
                         if let names {
                             // Labels are one thumbnail wide: only Unown's letter fits, the sprite shows other forms.
                             Text(uncaught ? "???"
-                                 : PokemonForm.displayName(names[id] ?? "…", speciesID: id, form: form, label: nil))
+                                 : PokemonForm.displayName(names[id] ?? "…", speciesID: id, form: stageForm, label: nil))
                                 .font(.system(size: nameFontSize))
                                 .foregroundStyle(uncaught ? .tertiary : .secondary)
                                 .lineLimit(nameLineLimit).minimumScaleFactor(nameMinimumScaleFactor)
@@ -652,7 +653,7 @@ struct EvoLineView: View {
                 if item.isCollected {
                     // Faded when it is a coming evolution (Home); a Pokédex page's family is caught.
                     SpriteView(speciesID: item.speciesID, size: thumb, shiny: drawsShiny(item.speciesID),
-                               form: form,
+                               form: item.form ?? form,
                                sameScale: true, bottomAligned: bottomAligned)
                         .opacity(node.state == .future ? 0.4 : 1)
                         .saturation(node.state == .future ? 0.6 : 1)
@@ -663,7 +664,7 @@ struct EvoLineView: View {
                 }
             }
             if let names {
-                Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: form, label: nil) : "???")
+                Text(item.isCollected ? PokemonForm.displayName(names[item.speciesID] ?? "…", speciesID: item.speciesID, form: item.form ?? form, label: nil) : "???")
                     .font(.system(size: nameFontSize))
                     .foregroundStyle(item.isCollected ? .secondary : .tertiary)
                     .lineLimit(nameLineLimit)
@@ -673,7 +674,7 @@ struct EvoLineView: View {
             }
         }
         .frame(width: thumb + (names == nil ? 0 : Self.nameSlack))
-        .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected))
+        .modifier(dexLinkModifier(forSpeciesID: item.speciesID, isCollected: item.isCollected, form: item.form))
         .hoverTip(item.isCollected ? (names?[item.speciesID] ?? "") : mysteryLabel)
     }
 }
@@ -3017,10 +3018,25 @@ struct PokemonDetailView: View {
                         maxWidth: PopoverMetrics.scrollContentWidth - Design.cardPadding * 2, form: family.form,
                         nameFontSize: 10, dexLinks: links,
                         onOpenDexEntry: { target in
-                            onOpenDexPage?(.init(collectionID: target, form: family.form),
+                            // A stage shown in a form of its own held opens in it (`EvoLineItem.form`).
+                            let stageForm = Self.stageForms(line, links: links)[target] ?? family.form
+                            onOpenDexPage?(.init(collectionID: target, form: stageForm),
                                            .init(collectionID: species.collectionID, form: shown.form))
                         })
         }
+    }
+
+    /// The forms the line's stages show of their own, by the page each opens.
+    nonisolated static func stageForms(_ nodes: [EvoLineItem], links: [Int: String]) -> [String: PokemonForm] {
+        var forms: [String: PokemonForm] = [:]
+        for node in nodes {
+            switch node.content {
+            case .species(let id): if let form = node.form, let page = links[id] { forms[page] = form }
+            case .branch(let items): for item in items { if let form = item.form, let page = links[item.speciesID] { forms[page] = form } }
+            case .mystery: break
+            }
+        }
+        return forms
     }
 
     /// The page's family without the page's own species: the header shows it already (the owner, 2026-11-17).

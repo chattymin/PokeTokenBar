@@ -66,6 +66,16 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
+        ChangelogDay(date: "2026-11-19", entries: [
+            .fixed("2026-11-19-held-form-line", { $0.t("포켓몬 페이지의 진화 라인이 기본 모습은 없지만 다른 모습으로 가진 포켓몬(마빌크 다음의 마휘핑 등)을 실루엣 대신 가진 첫 모습으로 보여 주고 그 페이지를 열어요.",
+                                                       "A Pokémon's page now shows an evolution you hold in other forms but not its usual one (Alcremie after Milcery) in the first form you hold, and opens its page, instead of a silhouette.",
+                                                       "ポケモンのページの進化ラインで、通常の姿はなくても別の姿で持っているポケモン（マホミルの次のマホイップなど）を、シルエットではなく持っている最初の姿で表示し、そのページを開けます。",
+                                                       "La línea evolutiva de la página de un Pokémon muestra una evolución que tienes en otras formas pero no en la habitual (Alcremie tras Milcery) en la primera forma que tienes, y abre su página, en lugar de una silueta.",
+                                                       "La ligne d'évolution d'une fiche montre une évolution que tu as dans d'autres formes mais pas dans la normale (Charmilly après Crèmy) dans la première forme que tu as, et ouvre sa fiche, au lieu d'une silhouette.",
+                                                       "A linha evolutiva da página de um Pokémon mostra uma evolução que você tem em outras formas mas não na comum (Alcremie depois de Milcery) na primeira forma que você tem, e abre a página dela, em vez de uma silhueta.",
+                                                       "Die Entwicklungsreihe einer Pokémon-Seite zeigt eine Entwicklung, die du in anderen Formen, aber nicht in der üblichen hast (Pokusan nach Hokumil), in der ersten Form, die du hast, und öffnet ihre Seite, statt einer Silhouette.",
+                                                       "Линия эволюции на странице покемона показывает эволюцию, которая есть у тебя в других формах, но не в обычной (Алкрими после Милсери), в первой твоей форме и открывает её страницу вместо силуэта.") }),
+        ]),
         ChangelogDay(date: "2026-11-18", entries: [
             .fixed("2026-11-18-costume-egg-name", { $0.t("행운 화면의 부화 목록이 코스튬 알에서 나온 포켓몬의 알을 이제 가방과 같은 이름으로 보여 줘요: '포켓몬 알'이 아니라 '코스튬 알 · 달 이름'이에요.",
                                                          "In the Luck screen's hatch list, a Costume Egg now carries the name the Bag gives it: \"Costume Egg · its event\", not \"Pokémon Egg\".",

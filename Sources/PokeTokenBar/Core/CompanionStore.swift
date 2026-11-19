@@ -1374,7 +1374,9 @@ final class CompanionStore {
             lineForm = PokemonForm(only)
         }
         func stage(_ id: Int) -> EvoLineItem {
-            EvoLineItem(.species(id), state.ownsSpecies(id, form: lineForm) ? .done : .uncaught)
+            if state.ownsSpecies(id, form: lineForm) { return EvoLineItem(.species(id), .done) }
+            if let held = heldOwnForm(of: id) { return EvoLineItem(.species(id), .done, form: held) }
+            return EvoLineItem(.species(id), .uncaught)
         }
         var ancestors: [Int] = []
         var id = speciesID
@@ -1392,13 +1394,26 @@ final class CompanionStore {
                 continue
             }
             if next.count > 1 {
-                nodes.append(EvoLineItem(.branch(next.map {
-                    BranchEvolutionItem(speciesID: $0, isCollected: state.ownsSpecies($0, form: lineForm))
+                nodes.append(EvoLineItem(.branch(next.map { id in
+                    if state.ownsSpecies(id, form: lineForm) { return BranchEvolutionItem(speciesID: id, isCollected: true) }
+                    let held = heldOwnForm(of: id)
+                    return BranchEvolutionItem(speciesID: id, isCollected: held != nil, form: held)
                 }), .done))
             }
             break
         }
         return (nodes.count > 1 ? nodes : [], lineForm)
+    }
+
+    /// A family stage held only in forms the line's does not lead to, when its forms are its own: no stage before or
+    /// after it has forms to pass on (Alcremie's sweets after a Milcery, Vivillon's patterns). Its first form held, so
+    /// the line shows and opens it (the owner, 2026-11-19: Milcery's page showed Alcremie as a silhouette, its plain
+    /// form not caught). A form a neighbor passes on (an Alolan Vulpix's Ninetales) never stands in: nil.
+    private func heldOwnForm(of id: Int) -> PokemonForm? {
+        let forms = PokemonForm.forms(speciesID: id)
+        let neighbors = [PokemonEvolutionData.parents[id]].compactMap { $0 } + PokemonEvolutionData.children(of: id, form: nil)
+        guard !forms.isEmpty, neighbors.allSatisfy({ PokemonForm.forms(speciesID: $0).isEmpty }) else { return nil }
+        return forms.first { state.ownsSpecies(id, form: $0) }
     }
 
     /// The species of a Pokédex page's family drawn shiny when the page shows its shiny look: each one caught shiny in

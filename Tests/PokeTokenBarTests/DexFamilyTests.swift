@@ -30,6 +30,28 @@ final class DexFamilyTests: XCTestCase {
         return CompanionStore(provider: DexFamilyProvider(), fileURL: file, defaults: defaults)
     }
 
+    /// [Regression] The owner, 2026-11-19: Milcery's page showed Alcremie as a silhouette that opened nothing, its
+    /// plain form never caught though others were. A species whose forms are its own shows and opens the first held.
+    func testAStageHeldOnlyInFormsOfItsOwnShowsTheFirstHeld() throws {
+        let ruby = PokemonForm("ruby-cream-strawberry")
+        let caramel = PokemonForm("caramel-swirl-love")
+        let store = try store([([868, 869], caramel), ([868, 869], ruby)])
+        let family = store.dexFamily(speciesID: 868, form: nil)
+        XCTAssertEqual(family.nodes, [EvoLineItem(.species(868), .current), EvoLineItem(.species(869), .done, form: ruby)],
+                       "the first held in the species' order, ruby before caramel")
+        let links = ["869": "alcremie"].reduce(into: [Int: String]()) { $0[Int($1.key)!] = $1.value }
+        XCTAssertEqual(PokemonDetailView.stageForms(family.nodes, links: links), ["alcremie": ruby], "it opens in that form")
+        // Its plain form held: the line's, as before.
+        let plain = try self.store([([868, 869], PokemonForm("vanilla-cream-strawberry")), ([868, 869], ruby)])
+        XCTAssertEqual(plain.dexFamily(speciesID: 868, form: nil).nodes.last, EvoLineItem(.species(869), .done))
+    }
+
+    /// A form a neighbor passes on never stands in: a Kanto Vulpix's page keeps an Alolan Ninetales a silhouette.
+    func testARegionalFormIsNeverShownInAnotherLine() throws {
+        let store = try store([([37], nil), ([37, 38], PokemonForm("alola"))])
+        XCTAssertEqual(store.dexFamily(speciesID: 37, form: nil).nodes.last, EvoLineItem(.species(38), .uncaught))
+    }
+
     func testALinearLineShowsBothSidesAndSilhouettesWhatIsNotCaught() throws {
         let store = try store([([4, 5], nil)])
         XCTAssertEqual(store.dexFamily(speciesID: 5, form: nil).nodes, [
