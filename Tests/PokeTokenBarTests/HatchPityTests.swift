@@ -192,6 +192,32 @@ final class HatchPityTests: XCTestCase {
 
     // MARK: End to end
 
+    /// Overflow that graduates the Pokémon inside the hatch itself: the next egg is rolled from that
+    /// graduation, and it must already see the streak this hatch produced (4 → 5 → pity).
+    func testOverflowGraduationRollsTheNextEggWithTheUpdatedStreak() async throws {
+        // Without pity id 1 wins 127 of 130 rolls; pick a seed whose hatch roll does draw the repeat.
+        let index = [BaseSpecies(id: 1, captureRate: 255), BaseSpecies(id: 2, captureRate: 3)]
+        let seed = try XCTUnwrap((UInt64(0)..<500).first { firstRoll($0) % 130 < 127 })
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("pity-\(UUID().uuidString).json")
+        var st = CompanionState()
+        st.installBaselineSet = true
+        st.lastDate = "d1"
+        st.eggUsage = PokemonBalance.eggHatchThreshold + PokemonBalance.graduationTotal(.common)
+        st.collectedFinals = ["1:1"]
+        st.repeatHatchStreak = 4
+        try JSONEncoder().encode(st).write(to: url)
+        let overflowing = CompanionStore(provider: indexProvider(index), clock: { pityNow }, fileURL: url,
+                                         rng: SeededRNG(seed: seed))
+
+        await overflowing.hatchIfNeeded()
+
+        XCTAssertNil(overflowing.state.active, "the overflow graduated the repeat inside the hatch")
+        XCTAssertEqual(overflowing.state.dex.last?.baseID, 1)
+        XCTAssertEqual(overflowing.state.repeatHatchStreak, 5)
+        for _ in 0..<200 where overflowing.state.pendingHatchID == nil { await Task.yield() }
+        XCTAssertEqual(overflowing.state.pendingHatchID, 2, "the next egg's roll saw streak 5")
+    }
+
     /// Five repeat hatches through the real graduation path, then the egg prepared next is a new line.
     func testFiveRepeatHatchesThenThePreparedEggIsAnUncollectedLine() async throws {
         // Without pity id 1 wins 127 of 130 rolls.
