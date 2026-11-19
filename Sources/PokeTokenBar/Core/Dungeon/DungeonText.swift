@@ -170,6 +170,18 @@ extension L {
           "Подземелья? Оук советует подземелье, если собранная для вас команда побеждает хотя бы в \(win) случаев, в \"\(hallName)\" хватит \(hall). Пока яйцо может принести новую форму, на подземелья уходит меньше \(share) токенов: пока команда исследует, ничего не растёт.")
     }
 
+    /// Prof. Oak's note while the dungeons have had their share of the tokens: why he proposes none, and until when.
+    func oakDungeonBudgetNote(share: String, left: String, eta: String) -> String {
+        t("던전이 이미 토큰의 \(share)를 썼어요. 다음 던전은 \(left) 뒤에 추천해요\(eta).",
+          "Dungeons have had their \(share) of your tokens: Oak suggests the next one in \(left)\(eta).",
+          "ダンジョンはもうトークンの\(share)を使いました。次のダンジョンは\(left)後におすすめします\(eta)。",
+          "Las mazmorras ya se llevaron su \(share) de tus tokens: Oak te propondrá la siguiente dentro de \(left)\(eta).",
+          "Les donjons ont eu leurs \(share) de tes tokens : Chen propose le suivant dans \(left)\(eta).",
+          "As masmorras já levaram seus \(share) dos seus tokens: Carvalho sugere a próxima daqui a \(left)\(eta).",
+          "Dungeons hatten schon ihre \(share) deiner Tokens: Eich schlägt den nächsten in \(left)\(eta) vor.",
+          "Подземелья уже забрали свои \(share) токенов: Оук предложит следующее через \(left)\(eta).")
+    }
+
     func oakDungeonPauseEgg(_ dungeon: String) -> String {
         t("팀이 \(KoreanParticle.object.attach(to: dungeon)) 탐험하는 동안 알은 부화하지 않아요.",
           "While your team explores \(dungeon), your egg doesn't hatch.",
