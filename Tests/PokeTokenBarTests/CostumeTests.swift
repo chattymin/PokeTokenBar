@@ -140,13 +140,36 @@ final class CostumeTests: XCTestCase {
         let june = CostumeCatalog.lot(month: 6)
         let s = try store { $0.dex = june.dropFirst(3).map(self.dressed) }
         XCTAssertEqual(s.costumeEggsLeftToEarn(month: 6), 3)
-        s.earnCostumeEggs(3_000_000_000, day: "2026-06-10")
-        XCTAssertEqual(s.state.costumeEggs.count, 3, "as many as the costumes left")
+        s.earnCostumeEggs(1_800_000_000, day: "2026-06-10")
+        XCTAssertEqual(s.state.costumeEggs.map(\.month), [6, 6, 6, 5, 5, 5], "June's three, then May's (2026-11-19)")
         XCTAssertEqual(s.costumeEggsLeftToEarn(month: 6), 0)
         let full = try store { $0.dex = june.map(self.dressed) }
-        full.earnCostumeEggs(3_000_000_000, day: "2026-06-10")
-        XCTAssertTrue(full.state.costumeEggs.isEmpty, "the lot complete: no egg")
+        full.earnCostumeEggs(300_000_000, day: "2026-06-10")
+        XCTAssertEqual(full.state.costumeEggs.map(\.month), [5], "June complete: a past event's")
         XCTAssertNil(full.drawCostumeEgg(month: 6))
+        // Every lot covered: no egg at all.
+        let everything = try store { $0.dex = CostumeCatalog.entries.map(self.dressed) }
+        everything.earnCostumeEggs(3_000_000_000, day: "2026-06-10")
+        XCTAssertTrue(everything.state.costumeEggs.isEmpty)
+        XCTAssertNil(everything.costumeEggLot(month: 6))
+    }
+
+    /// The owner's scenario, 2026-11-19: three eggs in November, December's lot then completed. November must not wait
+    /// a year: December's next eggs are November's, the latest past event still missing costumes, then October's.
+    func testACoveredMonthGivesThePastEventsEggs() throws {
+        let december = CostumeCatalog.lot(month: 12)
+        let november = CostumeCatalog.lot(month: 11)
+        let s = try store {
+            $0.dex = december.map(self.dressed)
+            $0.costumeEggs = (0..<3).map { self.egg("n\($0)", month: 11) }
+        }
+        XCTAssertEqual(s.costumeEggLot(month: 12), 11)
+        s.earnCostumeEggs(300_000_000, day: "2026-12-05")
+        XCTAssertEqual(s.state.costumeEggs.last?.month, 11, "November's, not a year away")
+        let left = november.count - 4
+        s.earnCostumeEggs((left + 1) * 300_000_000, day: "2026-12-06")
+        XCTAssertEqual(s.state.costumeEggs.filter { $0.month == 11 }.count, november.count, "November covered")
+        XCTAssertEqual(s.state.costumeEggs.last?.month, 10, "then October's")
     }
 
     /// The owner, 2026-11-18: a season's eggs stack in the Bag as the other eggs do; a use opens one of the stack.

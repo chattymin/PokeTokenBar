@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-19", entries: [
+            .improved("2026-11-19-past-costume-eggs", { $0.t("이번 달 코스튬을 모두 채우면, 다음 코스튬 알은 아직 없는 코스튬이 남은 가장 최근의 지난 이벤트에서 나와요. 지나간 이벤트를 1년 기다릴 필요가 없어요.",
+                                                             "Once this month's costumes are covered, the next Costume Eggs come from the latest past event still missing some: no need to wait a year for an event you missed.",
+                                                             "今月のコスチュームが足りたら、次のコスチュームのタマゴは、まだ足りないコスチュームがある一番最近の過去のイベントから出ます。逃したイベントを1年待つ必要はありません。",
+                                                             "Cuando los disfraces del mes están cubiertos, los siguientes huevos disfrazados vienen del evento pasado más reciente al que le faltan: no hace falta esperar un año por un evento que te perdiste.",
+                                                             "Une fois les costumes du mois couverts, les Œufs costumés suivants viennent de l'évènement passé le plus récent auquel il en manque : plus besoin d'attendre un an un évènement raté.",
+                                                             "Quando as fantasias do mês estão cobertas, os próximos ovos fantasiados vêm do evento passado mais recente que ainda tem fantasias faltando: não precisa esperar um ano por um evento perdido.",
+                                                             "Sind die Kostüme des Monats abgedeckt, kommen die nächsten Kostüm-Eier vom jüngsten vergangenen Event, dem noch welche fehlen: Kein Jahr Warten auf ein verpasstes Event.",
+                                                             "Когда костюмы месяца покрыты, следующие костюмные яйца приходят из самого недавнего прошедшего события, где ещё чего-то не хватает: не нужно ждать год пропущенное событие.") }),
             .fixed("2026-11-19-costume-egg-missing-only", { $0.t("코스튬 알의 포켓몬은 아직 없는 코스튬으로만 진화해요. 이미 가진 코스튬(이브이에서 님피아 등)으로는 진화하지 않아요.",
                                                                  "A Costume Egg's Pokémon now evolves only toward a costume you lack, never into one you already have (an Eevee into Sylveon).",
                                                                  "コスチュームのタマゴのポケモンは、まだ持っていないコスチュームにだけ進化します。持っているコスチューム（イーブイからニンフィアなど）には進化しません。",

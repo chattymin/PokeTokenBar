@@ -108,13 +108,21 @@ struct CostumeCollectionScreen: View {
                         .fixedSize(horizontal: false, vertical: true)
                 }
             }
-            // No egg comes once the eggs waiting cover the month's costumes left (the owner, 2026-11-18).
-            if store.costumeEggsLeftToEarn(month: month) > 0 {
+            // The month's lot covered, the next egg is a past event's still missing costumes (the owner, 2026-11-19);
+            // every lot covered, none comes.
+            if let lot = store.costumeEggLot(month: month) {
+                if lot != month {
+                    HStack(spacing: 6) {
+                        SpriteView(speciesID: nil, size: 18, egg: .costume(lot))
+                        Text(l.costumeEggFromPastEvent(l.costumeEventName(lot))).font(.caption2).foregroundStyle(.secondary)
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                }
                 ProgressView(value: Double(progress), total: Double(rate)).tint(CollectionStatsScreen.done)
                 Text(l.costumeEggNext(TokenFormatter.compact(rate - progress))).font(.caption2).foregroundStyle(.secondary)
             } else {
-                let waiting = store.state.costumeEggs.contains { $0.month == month }
-                Text(waiting ? l.costumeEggNoMore : l.costumeLotComplete).font(.caption2).foregroundStyle(.secondary)
+                Text(store.state.costumeEggs.isEmpty ? l.costumeLotComplete : l.costumeEggNoMore)
+                    .font(.caption2).foregroundStyle(.secondary)
                     .fixedSize(horizontal: false, vertical: true)
             }
         }

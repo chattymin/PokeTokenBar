@@ -3557,23 +3557,32 @@ final class CompanionStore {
 
     // MARK: Costume Eggs
 
-    /// One Costume Egg every 300M tokens used during the month's event (the owner, 2026-11-13), only while its lot has
-    /// more costumes left to collect than eggs waiting (the owner, 2026-11-18: "si dans l'inventaire on a 3 œufs et
-    /// qu'il nous reste 3 costumes à déverrouiller, on gagne pas de 4e œuf"). What an egg holds is drawn when opened.
+    /// One Costume Egg every 300M tokens used (the owner, 2026-11-13), of a lot with more costumes left to collect than
+    /// eggs waiting (the owner, 2026-11-18: "si dans l'inventaire on a 3 œufs et qu'il nous reste 3 costumes à
+    /// déverrouiller, on gagne pas de 4e œuf"): the month's, then once it is covered the latest past event's still
+    /// missing some (`costumeEggLot`). What an egg holds is drawn when opened.
     func earnCostumeEggs(_ tokens: Int, day: String) {
         guard tokens > 0, let month = CostumeCatalog.month(ofDay: day) else { return }
         let total = state.costumeEggTokens + tokens
         let count = total / CostumeCatalog.tokensPerEgg
         state.costumeEggTokens = total % CostumeCatalog.tokensPerEgg
         guard count > 0 else { return }
-        var earned = 0
-        for _ in 0..<count where costumeEggsLeftToEarn(month: month) > 0 {
-            state.costumeEggs.append(CostumeEgg(month: month))
-            earned += 1
+        var earned: [Int] = []
+        for _ in 0..<count {
+            guard let lot = costumeEggLot(month: month) else { break }
+            state.costumeEggs.append(CostumeEgg(month: lot))
+            earned.append(lot)
         }
-        guard earned > 0 else { return }
-        AppLog.write("costumes: +\(earned) egg(s) of month \(month)")
-        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(month), count: earned))
+        guard let first = earned.first else { return }
+        AppLog.write("costumes: +\(earned.count) egg(s) of month(s) \(Set(earned).sorted())")
+        notifyCompanionEvent(l.costumeEggEarnedTitle, l.costumeEggEarnedBody(event: l.costumeEventName(first), count: earned.count))
+    }
+
+    /// The lot the next Costume Egg comes from: `month`'s while it has costumes left to earn, else the latest past
+    /// event's that has (the owner, 2026-11-19: three eggs in November, December completed, November must not wait a
+    /// year). Nil once every lot is covered.
+    func costumeEggLot(month: Int) -> Int? {
+        (0..<12).map { (month - 1 - $0 + 12) % 12 + 1 }.first { costumeEggsLeftToEarn(month: $0) > 0 }
     }
 
     /// The costumes collected or promised: the Pokédex's, the Pokémon raised's, the egg incubating's.
