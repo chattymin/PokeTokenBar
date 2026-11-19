@@ -248,7 +248,7 @@ final class PokemonFormTests: XCTestCase {
         }
         // Without the factor flag the same two forms would get the 2/1 regular weighting.
         let weighted = (UInt64(0)..<1600).filter {
-            PokemonForm.roll($0, among: forms, collected: [normal]) == gmax
+            PokemonForm.roll($0, among: forms, factors: [], collected: [normal]) == gmax
         }
         XCTAssertGreaterThan(weighted.count, 1000)
     }
@@ -268,9 +268,9 @@ final class PokemonFormTests: XCTestCase {
         XCTAssertEqual(PokemonForm.roll(0, among: [a, x, y], factors: [x, y], collected: [x]), x)
         XCTAssertEqual(PokemonForm.roll(8, among: [a, x, y], factors: [x, y], collected: [x]), y)
         // Lines without factors keep their former draw: the whole roll goes to the weighting.
-        XCTAssertEqual(PokemonForm.roll(5, among: [plant, sandy, PokemonForm("trash")], collected: []),
+        XCTAssertEqual(PokemonForm.roll(5, among: [plant, sandy, PokemonForm("trash")], factors: [], collected: []),
                        PokemonForm("trash"))
-        XCTAssertEqual(PokemonForm.roll(2, among: [plant, sandy, PokemonForm("trash")], collected: []), sandy)
+        XCTAssertEqual(PokemonForm.roll(2, among: [plant, sandy, PokemonForm("trash")], factors: [], collected: []), sandy)
     }
 
     func testHatchDrawsGigantamaxOnceFromTheLineRollWithCollectionOdds() async throws {
@@ -300,6 +300,23 @@ final class PokemonFormTests: XCTestCase {
                 outcomes.insert(expected)
             }
             XCTAssertEqual(outcomes, [normal, gmax], "1 in \(denominator): the seeds cover a hit and a miss")
+        }
+    }
+
+    /// An egg prepared before the update stored no form; decoding (and the load-time sanitizing,
+    /// which the hatch loop exercises) gives it the line default, so the hatch does not roll again
+    /// and cannot turn it Gigantamax.
+    func testEggPreparedBeforeGigantamaxHatchesWithTheDefault() async throws {
+        let json = """
+        {"pendingHatchID":4,"eggUsage":\(PokemonBalance.eggHatchThreshold)}
+        """
+        let state = try JSONDecoder().decode(CompanionState.self, from: Data(json.utf8))
+        XCTAssertEqual(state.pendingForm, normal)
+        for seed in UInt64(1)...32 {
+            let s = try store(state, seed: seed)
+            await s.hatchIfNeeded()
+            XCTAssertEqual(s.state.active?.baseID, 4)
+            XCTAssertEqual(s.state.active?.form, normal, "seed \(seed)")
         }
     }
 

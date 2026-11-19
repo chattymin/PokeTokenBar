@@ -81,10 +81,14 @@ Gen V has no Gigantamax animation, so its GIFs come from Showdown
 (`AnimatedSource.showdown`): `other/showdown/<variety id>.gif`, with `shiny/`,
 `back/` and `back/shiny/` beside it. Venusaur (10195) and Blastoise (10197)
 have no back GIF; the 404 back-to-front fallback shows their front. Showdown
-GIFs are rendered models of up to about 216×211 px and 100–144 frames (around
-0.6–0.85 MB each, against about 80 KB for a Black/White GIF). Every sprite view
+GIFs are rendered models of up to about 216×211 px (Charizard 163×150, its back
+216×211) with 100–160 frames at 0.03 s per frame, about 0.25–0.85 MB each,
+against 72 frames and about 80 KB for a Black/White GIF. Every sprite view
 aspect-fits the image to its box, so they draw at the same size as other
-Pokémon; nothing assumes a 96 px canvas.
+Pokémon; nothing assumes a 96 px canvas. The always-visible menu bar and
+floating pet thin the frames with their existing frame floor
+(`GIFDecoder.capFrameRate`), while the popover and Pokédex detail play them at
+full rate.
 
 PokéAPI only names Gigantamax forms in English, Japanese, French and German, so
 the app labels them itself ("거다이맥스의 모습", "Gigantamax Form") and does not
@@ -126,6 +130,9 @@ are PokeAPI form identifiers (`sky`, `blue-striped`, `exclamation`…). The form
 Unown keys `unownForm`, `pendingUnownForm` and `representativeUnownForm` are
 still read. A form that does not belong to the line falls back to its default,
 so older Unown records without a letter keep their A appearance.
+An egg prepared before Gigantamax was added already stores its line's default
+form (or none), so it hatches with that default and cannot become Gigantamax,
+like other records written before their line had forms.
 
 Downgrading loses forms: older versions only read the former Unown keys, so
 their Unown individuals fall back to A and other forms are dropped when they

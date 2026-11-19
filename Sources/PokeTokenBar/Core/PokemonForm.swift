@@ -211,7 +211,10 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
     /// denominator is 8 while any factor of the line is uncollected and 16 once all are. Otherwise
     /// the remaining bits pick among the other forms, where uncollected forms weigh 2 and collected
     /// forms weigh 1.
-    static func roll(_ roll: UInt64, among forms: [PokemonForm], factors: Set<PokemonForm> = [],
+    /// `factors` has no default on purpose: a caller that forgot it would silently give a factor
+    /// form the regular 2:1 weighting (about every other hatch instead of 1 in 8). Pass
+    /// `factorForms(baseID:)`, or `[]` for a list known to have none.
+    static func roll(_ roll: UInt64, among forms: [PokemonForm], factors: Set<PokemonForm>,
                      collected: Set<PokemonForm>) -> PokemonForm {
         let factorForms = forms.filter(factors.contains)
         let regular = forms.filter { !factors.contains($0) }
