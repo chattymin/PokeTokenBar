@@ -144,11 +144,22 @@ extension CompanionStore {
 
     /// The chase, one against one as in the dungeons: won, the item comes back from the hideout and the team flies off;
     /// lost, it stays there. Nil when there is nothing to chase now (no such theft, chased already, a team away).
+    /// Team Rocket is never caught (the owner, 2026-11-19: "on doit jamais pouvoir la battre"): no fight, Giovanni
+    /// laughs it off and waits at his hideout, the item with him.
     @discardableResult
     func defendAgainstAmbush(_ id: String) -> Bool? {
         guard let index = state.dungeons.ambushes.firstIndex(where: { $0.id == id }), expedition == nil else { return nil }
         var ambush = state.dungeons.ambushes[index]
         guard ambush.won == nil, let kind = ambush.kind else { return nil }
+        if ambush.team == .rocket {
+            ambush.won = false
+            ambush.collapsed = nil
+            let settled = ambush
+            changeDungeons { $0.ambushes[index] = settled }
+            AppLog.write("villains: rocket chase refused, \(ambush.count) \(kind.rawValue) at the hideout")
+            persist()
+            return false
+        }
         let mine = ambushDefenders(for: ambush)
         let foes = VillainRules.gruntSpecs(ambush.grunts, tier: ambush.tier, seed: ambush.seed)
         guard !mine.isEmpty, !foes.isEmpty else { return nil }

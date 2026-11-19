@@ -198,15 +198,20 @@ final class VillainTests: XCTestCase {
         }
         let s = try stolen(weak)
         let id = try XCTUnwrap(s.villainAmbushes.first?.id)
-        XCTAssertEqual(s.defendAgainstAmbush(id), false, "three Magikarp and kin against Team Rocket's grunts")
+        XCTAssertEqual(s.defendAgainstAmbush(id), false, "Team Rocket is never caught (the owner, 2026-11-19)")
         XCTAssertEqual(s.itemCount(artifact), 0)
         XCTAssertEqual(s.villainStash(.rocket)?.items, [artifact.rawValue: 1])
         XCTAssertTrue(s.isDungeonOpen(.rocketHideout))
         XCTAssertEqual(s.keysToEnter(.rocketHideout), 0)
         XCTAssertEqual(s.dungeonInfo(.rocketHideout).tier, .t5)
         XCTAssertEqual(s.dungeonInfo(.rocketHideout).bosses, [150], "Giovanni's Mewtwo")
-        XCTAssertNotNil(s.villainAmbushes.first?.battle, "the fight can be watched")
+        XCTAssertNil(s.villainAmbushes.first?.battle, "no fight: Giovanni laughs it off and waits at his hideout")
         XCTAssertNil(s.defendAgainstAmbush(id), "chased once")
+        // Even with the strongest team: no fight, the item at the hideout.
+        let mighty = try stolen(strong)
+        XCTAssertEqual(mighty.defendAgainstAmbush(try XCTUnwrap(mighty.villainAmbushes.first?.id)), false)
+        XCTAssertNil(mighty.villainAmbushes.first?.battle)
+        XCTAssertEqual(mighty.villainStash(.rocket)?.items, [artifact.rawValue: 1], "still at the hideout")
         // Team Skull's grunts (T1) against Mewtwo, Rayquaza and kin: a chase they win nine times in ten, here with seed 7.
         let caught = try store(dex: strong, clock: clock) {
             $0.inventory = ["rareCandy": 2]

@@ -70,14 +70,14 @@ extension L {
           "Événement du mois : \(event)", "Evento do mês: \(event)", "Event des Monats: \(event)", "Событие месяца: \(event)")
     }
     func costumeEggRule(_ rate: String) -> String {
-        t("토큰 \(rate)마다 이번 달 코스튬 알 1개. 열면 가진 포켓몬이 아직 없는 코스튬을 입고 나와요.",
-          "A Costume Egg of this month every \(rate) tokens: opened, it gives one of your Pokémon in a costume you lack.",
-          "トークン\(rate)ごとに今月のコスチュームのタマゴを1こ。開けると、持っているポケモンがまだないコスチュームで出ます。",
-          "Un huevo disfrazado del mes cada \(rate) tokens: al abrirlo da uno de tus Pokémon con un disfraz que te falta.",
-          "Un Œuf costumé du mois tous les \(rate) tokens : à l'ouverture, un de tes Pokémon dans un costume qui te manque.",
-          "Um ovo fantasiado do mês a cada \(rate) tokens: ao abrir, um dos seus Pokémon com uma fantasia que falta.",
-          "Alle \(rate) Tokens ein Kostüm-Ei des Monats: Geöffnet gibt es eines deiner Pokémon in einem Kostüm, das dir fehlt.",
-          "Каждые \(rate) токенов: костюмное яйцо месяца. При открытии даёт твоего покемона в костюме, которого у тебя нет.")
+        t("토큰 \(rate)마다 코스튬 알 1개: 이번 달 것, 다 채우면 아직 없는 지난 이벤트 것. 열면 가진 포켓몬이 없는 코스튬을 입고 나와요.",
+          "A Costume Egg every \(rate) tokens: this month's, then a past event's you lack once it is covered. Opened, it gives one of your Pokémon in a costume you lack.",
+          "トークン\(rate)ごとにコスチュームのタマゴを1こ：今月のもの、足りたらまだない過去のイベントのもの。開けると、持っているポケモンがまだないコスチュームで出ます。",
+          "Un huevo disfrazado cada \(rate) tokens: el del mes y, cubierto este, el de un evento pasado que te falte. Al abrirlo da uno de tus Pokémon con un disfraz que te falta.",
+          "Un Œuf costumé tous les \(rate) tokens : celui du mois, puis, une fois couvert, celui d'un évènement passé qui te manque. À l'ouverture, un de tes Pokémon dans un costume qui te manque.",
+          "Um ovo fantasiado a cada \(rate) tokens: o do mês e, coberto este, o de um evento passado que falta. Ao abrir, um dos seus Pokémon com uma fantasia que falta.",
+          "Alle \(rate) Tokens ein Kostüm-Ei: das des Monats, dann, wenn es abgedeckt ist, das eines vergangenen Events, das dir fehlt. Geöffnet gibt es eines deiner Pokémon in einem Kostüm, das dir fehlt.",
+          "Каждые \(rate) токенов: костюмное яйцо месяца, а когда оно покрыто, яйцо прошедшего события, которого не хватает. При открытии даёт твоего покемона в костюме, которого у тебя нет.")
     }
     func costumeEggNext(_ left: String) -> String {
         t("다음 알까지 \(left)", "\(left) to the next egg", "つぎのタマゴまで\(left)", "\(left) para el próximo huevo",
@@ -182,28 +182,40 @@ extension L {
           "Заблокировано: ни у одного твоего выпускника нет костюма, который можно получить в этом сезоне.")
     }
 
-    /// The month's lot has no costume left that the eggs waiting do not cover: no egg comes.
+    /// Every lot has no costume left that the eggs waiting do not cover: no egg comes.
     var costumeEggNoMore: String {
-        t("이번 달 코스튬 알은 더 생기지 않아요: 가방의 알이 남은 코스튬을 모두 채워요.",
-          "No more Costume Eggs this month: the eggs in your Bag cover the costumes left.",
-          "今月のコスチュームのタマゴはもう出ません：バッグのタマゴで残りのコスチュームが足ります。",
-          "No llegan más huevos disfrazados este mes: los de tu Mochila cubren los disfraces que quedan.",
-          "Plus d'Œuf costumé ce mois-ci : ceux de ton Sac couvrent les costumes restants.",
-          "Não vêm mais ovos fantasiados este mês: os da sua Mochila cobrem as fantasias restantes.",
-          "Diesen Monat kommen keine Kostüm-Eier mehr: Die Eier in deinem Beutel decken die übrigen Kostüme ab.",
-          "В этом месяце костюмных яиц больше не будет: яйца в сумке покрывают оставшиеся костюмы.")
+        t("코스튬 알은 더 생기지 않아요: 가방의 알이 모든 이벤트의 남은 코스튬을 채워요.",
+          "No more Costume Eggs: the eggs in your Bag cover every event's costumes left.",
+          "コスチュームのタマゴはもう出ません：バッグのタマゴで、すべてのイベントの残りのコスチュームが足ります。",
+          "No llegan más huevos disfrazados: los de tu Mochila cubren los disfraces que quedan de cada evento.",
+          "Plus d'Œuf costumé : ceux de ton Sac couvrent les costumes restants de tous les évènements.",
+          "Não vêm mais ovos fantasiados: os da sua Mochila cobrem as fantasias restantes de todos os eventos.",
+          "Keine Kostüm-Eier mehr: Die Eier in deinem Beutel decken die übrigen Kostüme aller Events ab.",
+          "Костюмных яиц больше не будет: яйца в сумке покрывают оставшиеся костюмы всех событий.")
     }
 
-    /// Every costume of the month's lot collected or promised: no egg comes.
+    /// Every costume of every lot collected or promised: no egg comes.
     var costumeLotComplete: String {
-        t("이번 달 코스튬을 모두 모았어요: 코스튬 알은 더 생기지 않아요.",
-          "Every costume of this month is yours: no more Costume Eggs.",
-          "今月のコスチュームはすべて集めました：コスチュームのタマゴはもう出ません。",
-          "Ya tienes todos los disfraces de este mes: no llegan más huevos disfrazados.",
-          "Tous les costumes de ce mois sont à toi : plus d'Œuf costumé.",
-          "Todas as fantasias deste mês são suas: não vêm mais ovos fantasiados.",
-          "Alle Kostüme dieses Monats gehören dir: keine Kostüm-Eier mehr.",
-          "Все костюмы этого месяца твои: костюмных яиц больше не будет.")
+        t("모든 이벤트의 코스튬을 모았어요: 코스튬 알은 더 생기지 않아요.",
+          "Every event's costumes are yours: no more Costume Eggs.",
+          "すべてのイベントのコスチュームを集めました：コスチュームのタマゴはもう出ません。",
+          "Ya tienes los disfraces de todos los eventos: no llegan más huevos disfrazados.",
+          "Tous les costumes de tous les évènements sont à toi : plus d'Œuf costumé.",
+          "Todas as fantasias de todos os eventos são suas: não vêm mais ovos fantasiados.",
+          "Alle Kostüme aller Events gehören dir: keine Kostüm-Eier mehr.",
+          "Все костюмы всех событий твои: костюмных яиц больше не будет.")
+    }
+
+    /// This month's lot covered, the next egg comes from a past event still missing costumes (the owner, 2026-11-19).
+    func costumeEggFromPastEvent(_ event: String) -> String {
+        t("이번 달 코스튬은 모두 채웠어요: 다음 알은 지난 이벤트 \(event)의 알이에요.",
+          "This month's costumes are covered: the next egg is from a past event, \(event).",
+          "今月のコスチュームは足りています：次のタマゴは過去のイベント、\(event)のものです。",
+          "Los disfraces de este mes están cubiertos: el próximo huevo es de un evento pasado, \(event).",
+          "Les costumes du mois sont couverts : le prochain œuf vient d'un évènement passé, \(event).",
+          "As fantasias deste mês estão cobertas: o próximo ovo é de um evento passado, \(event).",
+          "Die Kostüme dieses Monats sind abgedeckt: Das nächste Ei stammt von einem vergangenen Event, \(event).",
+          "Костюмы этого месяца покрыты: следующее яйцо из прошедшего события, \(event).")
     }
 
     var costumeEggLockedShort: String {
