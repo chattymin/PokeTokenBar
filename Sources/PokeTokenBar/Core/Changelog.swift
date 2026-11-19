@@ -83,9 +83,7 @@ enum Changelog {
                                                        "A linha evolutiva da página de um Pokémon mostra uma evolução que você tem em outras formas mas não na comum (Alcremie depois de Milcery) na primeira forma que você tem, e abre a página dela, em vez de uma silhueta.",
                                                        "Die Entwicklungsreihe einer Pokémon-Seite zeigt eine Entwicklung, die du in anderen Formen, aber nicht in der üblichen hast (Pokusan nach Hokumil), in der ersten Form, die du hast, und öffnet ihre Seite, statt einer Silhouette.",
                                                        "Линия эволюции на странице покемона показывает эволюцию, которая есть у тебя в других формах, но не в обычной (Алкрими после Милсери), в первой твоей форме и открывает её страницу вместо силуэта.") }),
-        ]),
-        ChangelogDay(date: "2026-11-18", entries: [
-            .fixed("2026-11-18-costume-egg-name", { $0.t("행운 화면의 부화 목록이 코스튬 알에서 나온 포켓몬의 알을 이제 가방과 같은 이름으로 보여 줘요: '포켓몬 알'이 아니라 '코스튬 알 · 달 이름'이에요.",
+            .fixed("2026-11-19-costume-egg-name", { $0.t("행운 화면의 부화 목록이 코스튬 알에서 나온 포켓몬의 알을 이제 가방과 같은 이름으로 보여 줘요: '포켓몬 알'이 아니라 '코스튬 알 · 달 이름'이에요.",
                                                          "In the Luck screen's hatch list, a Costume Egg now carries the name the Bag gives it: \"Costume Egg · its event\", not \"Pokémon Egg\".",
                                                          "ラッキー画面の孵化リストが、コスチュームのタマゴから生まれたポケモンのタマゴをバッグと同じ名前で表示するようになりました：「ポケモンのタマゴ」ではなく「コスチュームのタマゴ・イベント名」です。",
                                                          "La lista de eclosiones de la pantalla de Suerte ahora nombra el huevo de un Pokémon salido de un Huevo disfrazado como la Bolsa: \"Huevo disfrazado · su evento\", no \"Huevo Pokémon\".",
@@ -93,7 +91,7 @@ enum Changelog {
                                                          "A lista de eclosões da tela de Sorte agora dá ao ovo de um Pokémon saído de um Ovo fantasiado o nome que a Bolsa usa: \"Ovo fantasiado · seu evento\", não \"Ovo Pokémon\".",
                                                          "Die Schlupfliste des Glücksbildschirms nennt das Ei eines Pokémon aus einem Kostüm-Ei jetzt wie der Beutel: \"Kostüm-Ei · sein Event\", nicht \"Pokémon-Ei\".",
                                                          "Список вылуплений на экране удачи теперь называет яйцо покемона из костюмного яйца так же, как сумка: \"Костюмное яйцо · его событие\", а не \"Яйцо покемона\".") }),
-            .new("2026-11-18-oak-free-eggs") { l in
+            .new("2026-11-19-oak-free-eggs") { l in
                 let egg = l.itemName(.pokemonEgg)
                 return l.t("상점에 더 나은 알이 없거나 아직 살 수 없을 때, 오박사가 이제 가방에 이미 있는 알로 남는 포켓몬을 바로 놓아주라고 해요: \(KoreanParticle.subject.attach(to: egg)) 졸업 때 받는 알과 똑같이 뽑아요. 이름에 쓰인 포켓몬이 태어나는 알도 가방에 있으면 같이 따져요: 새로운 종이나 폼, 첫 이로치를 가져올 때만 추천해요. 코스튬 알도 코스튬은 빼고 따져요. 열 때 뽑힐 수 있는 포켓몬 전체에서 첫 이로치가 나올 평균 확률로 보고, 확률이 0이면 가방에 쓸 수 있는 다른 알이 없을 때 마지막 수단으로 추천해요. 태어난 포켓몬은 코스튬을 얻으려고 졸업까지 키워요.",
                            "When the Shop has no better egg, or you cannot afford it yet, Prof. Oak now has you send a duplicate off for an egg already in your Bag, right away: the \(egg) draws just what its graduation gives. An egg named after its Pokémon in your Bag counts too: it is advised only when it brings a new species or form, or a first shiny. A Costume Egg counts too, its costume left out: its chance is a first shiny's, averaged over everything it may draw when opened, and at 0 it is advised as a last resort when no other egg of your Bag can go. What hatches is kept until it graduates, for its costume.",
@@ -104,6 +102,27 @@ enum Changelog {
                            "Wenn der Laden kein besseres Ei hat oder du es dir noch nicht leisten kannst, lässt Prof. Eich dich ein doppeltes Pokémon sofort für ein Ei freilassen, das schon in deinem Beutel liegt: Das \(egg) zieht dasselbe wie sein Abschied. Ein Ei, das nach seinem Pokémon benannt ist, zählt in deinem Beutel auch: Es wird nur geraten, wenn es eine neue Art oder Form oder ein erstes Schillerndes bringt. Ein Kostüm-Ei zählt ebenfalls, ohne sein Kostüm: Seine Chance ist die auf ein erstes Schillerndes, gemittelt über alles, was beim Öffnen gezogen werden kann, und bei 0 wird es als letzter Ausweg geraten, wenn kein anderes Ei deines Beutels gehen kann. Was schlüpft, behältst du bis zum Abschied, wegen seines Kostüms.",
                            "Когда в магазине нет яйца получше или вы пока не можете его купить, профессор Оук сразу советует отпустить повторного покемона ради яйца, которое уже лежит в сумке: \"\(egg)\" даёт тот же розыгрыш, что и выпуск. Яйцо, названное по своему покемону, тоже учитывается в сумке: его советуют, только если оно принесёт новый вид или форму либо первого шайни. Костюмное яйцо тоже учитывается, без костюма: его шанс это шанс первого шайни, усреднённый по всему, что может выпасть при открытии, а при 0 его советуют как последнее средство, когда ни одно другое яйцо из сумки не может уйти. Вылупившегося оставят до выпуска ради его костюма.")
             },
+            .improved("2026-11-19-oak-dungeon-budget", { $0.t("던전이 이미 토큰을 충분히 써서 오박사가 던전을 추천하지 않을 때, 그 이유와 다음 던전까지 남은 토큰을 알려 줘요.",
+                                                           "When dungeons have had their share of your tokens and Prof. Oak suggests none, he now says so, and how many tokens until the next one.",
+                                                           "ダンジョンがもう十分にトークンを使ってオーキド博士がダンジョンを勧めないとき、その理由と次のダンジョンまでのトークンを伝えます。",
+                                                           "Cuando las mazmorras ya se llevaron su parte de tus tokens y el Profesor Oak no propone ninguna, ahora lo dice, y cuántos tokens faltan para la siguiente.",
+                                                           "Quand les donjons ont eu leur part de tes tokens et que le Prof. Chen n'en propose aucun, il le dit maintenant, avec les tokens qu'il reste avant le prochain.",
+                                                           "Quando as masmorras já levaram sua parte dos seus tokens e o Prof. Carvalho não sugere nenhuma, ele agora avisa, e diz quantos tokens faltam para a próxima.",
+                                                           "Wenn Dungeons schon ihren Anteil deiner Tokens hatten und Prof. Eich keinen vorschlägt, sagt er das jetzt, und wie viele Tokens es bis zum nächsten sind.",
+                                                           "Когда подземелья уже забрали свою долю токенов и профессор Оук не советует ни одного, он теперь говорит об этом и называет, сколько токенов осталось до следующего.") }),
+            .improved("2026-11-19-oak-useful-stats") { l in
+                let silver = l.itemName(.silverCapsule), atk = l.statName(.attack), spa = l.statName(.specialAttack)
+                return l.t("오박사는 이제 포켓몬이 쓰지 않는 능력치에 \(silver)을 권하지 않아요: 기술이 모두 특수면 \(atk), 모두 물리면 \(spa)에는 쓰지 않아요.",
+                           "Prof. Oak no longer suggests a \(silver) for a stat the Pokémon never uses: no \(atk) when all its attacks are special, no \(spa) when all are physical.",
+                           "オーキド博士は、ポケモンが使わない能力に\(silver)を勧めなくなりました：わざがすべて特殊なら\(atk)、すべて物理なら\(spa)には使いません。",
+                           "El Profesor Oak ya no propone una \(silver) para una estadística que el Pokémon no usa: ni \(atk) si todos sus ataques son especiales, ni \(spa) si todos son físicos.",
+                           "Le Prof. Chen ne propose plus de \(silver) pour une stat dont le Pokémon ne se sert pas : ni l'\(atk) si toutes ses attaques sont spéciales, ni l'\(spa) si toutes sont physiques.",
+                           "O Prof. Carvalho não sugere mais uma \(silver) para um atributo que o Pokémon não usa: nem \(atk) se todos os ataques forem especiais, nem \(spa) se todos forem físicos.",
+                           "Prof. Eich schlägt keinen \(silver) mehr für einen Wert vor, den das Pokémon nie nutzt: kein \(atk), wenn alle Attacken Spezial-Attacken sind, kein \(spa), wenn alle physisch sind.",
+                           "\(silver) от профессора Оука больше не идёт на характеристику, которой покемон не пользуется: ни на \(atk), если все его атаки специальные, ни на \(spa), если все физические.")
+            },
+        ]),
+        ChangelogDay(date: "2026-11-18", entries: [
             .fixed("2026-11-18-check-now", { $0.t("설정의 \"지금 확인\"이 팝오버가 이미 업데이트를 찾는 중일 때도 \"최신 버전\"이라고 하지 않고, 그 결과를 기다려 보여 줘요.",
                                                   "Settings' \"Check now\" no longer says you are up to date while the popover is already looking for an update: it waits for that answer.",
                                                   "設定の「今すぐ確認」は、ポップオーバーがすでにアップデートを探している間も「最新」と言わず、その結果を待って表示します。",
@@ -253,25 +272,6 @@ enum Changelog {
                                                        "Os esconderijos dos vilões ficaram com a metade do tamanho: metade dos andares, metade do preço. O baú do líder e o que foi roubado continuam inteiros.",
                                                        "Die Verstecke der Schurken sind halb so lang: halb so viele Ebenen, halber Preis. Die Truhe des Anführers und das Gestohlene bleiben ganz.",
                                                        "Логова злодеев стали вдвое короче: вдвое меньше этажей, вдвое ниже цена. Сундук главаря и украденное остаются целиком.") }),
-            .improved("2026-11-17-oak-dungeon-budget", { $0.t("던전이 이미 토큰을 충분히 써서 오박사가 던전을 추천하지 않을 때, 그 이유와 다음 던전까지 남은 토큰을 알려 줘요.",
-                                                           "When dungeons have had their share of your tokens and Prof. Oak suggests none, he now says so, and how many tokens until the next one.",
-                                                           "ダンジョンがもう十分にトークンを使ってオーキド博士がダンジョンを勧めないとき、その理由と次のダンジョンまでのトークンを伝えます。",
-                                                           "Cuando las mazmorras ya se llevaron su parte de tus tokens y el Profesor Oak no propone ninguna, ahora lo dice, y cuántos tokens faltan para la siguiente.",
-                                                           "Quand les donjons ont eu leur part de tes tokens et que le Prof. Chen n'en propose aucun, il le dit maintenant, avec les tokens qu'il reste avant le prochain.",
-                                                           "Quando as masmorras já levaram sua parte dos seus tokens e o Prof. Carvalho não sugere nenhuma, ele agora avisa, e diz quantos tokens faltam para a próxima.",
-                                                           "Wenn Dungeons schon ihren Anteil deiner Tokens hatten und Prof. Eich keinen vorschlägt, sagt er das jetzt, und wie viele Tokens es bis zum nächsten sind.",
-                                                           "Когда подземелья уже забрали свою долю токенов и профессор Оук не советует ни одного, он теперь говорит об этом и называет, сколько токенов осталось до следующего.") }),
-            .improved("2026-11-17-oak-useful-stats") { l in
-                let silver = l.itemName(.silverCapsule), atk = l.statName(.attack), spa = l.statName(.specialAttack)
-                return l.t("오박사는 이제 포켓몬이 쓰지 않는 능력치에 \(silver)을 권하지 않아요: 기술이 모두 특수면 \(atk), 모두 물리면 \(spa)에는 쓰지 않아요.",
-                           "Prof. Oak no longer suggests a \(silver) for a stat the Pokémon never uses: no \(atk) when all its attacks are special, no \(spa) when all are physical.",
-                           "オーキド博士は、ポケモンが使わない能力に\(silver)を勧めなくなりました：わざがすべて特殊なら\(atk)、すべて物理なら\(spa)には使いません。",
-                           "El Profesor Oak ya no propone una \(silver) para una estadística que el Pokémon no usa: ni \(atk) si todos sus ataques son especiales, ni \(spa) si todos son físicos.",
-                           "Le Prof. Chen ne propose plus de \(silver) pour une stat dont le Pokémon ne se sert pas : ni l'\(atk) si toutes ses attaques sont spéciales, ni l'\(spa) si toutes sont physiques.",
-                           "O Prof. Carvalho não sugere mais uma \(silver) para um atributo que o Pokémon não usa: nem \(atk) se todos os ataques forem especiais, nem \(spa) se todos forem físicos.",
-                           "Prof. Eich schlägt keinen \(silver) mehr für einen Wert vor, den das Pokémon nie nutzt: kein \(atk), wenn alle Attacken Spezial-Attacken sind, kein \(spa), wenn alle physisch sind.",
-                           "\(silver) от профессора Оука больше не идёт на характеристику, которой покемон не пользуется: ни на \(atk), если все его атаки специальные, ни на \(spa), если все физические.")
-            },
         ]),
         ChangelogDay(date: "2026-11-16", entries: [
             .improved("2026-11-16-last-throw-up") { l in
