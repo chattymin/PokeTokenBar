@@ -38,6 +38,7 @@ final class StatusItemMenuTests: XCTestCase {
             nil,
             .init(title: l.refreshNow, keyEquivalent: "r", action: .refresh),
             .init(title: l.dexTitle, keyEquivalent: "d", action: .openDex),
+            .init(title: "Battle…", keyEquivalent: "b", action: .openBattle),
             .init(title: "Settings…", keyEquivalent: ",", action: .openSettings),
             .init(title: l.floatingPetHideLabel, keyEquivalent: "", action: .toggleFloatingPet),
             .init(title: l.backViewLabel, keyEquivalent: "", action: .toggleBackView),
