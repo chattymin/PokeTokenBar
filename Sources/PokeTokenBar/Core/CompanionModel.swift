@@ -453,11 +453,11 @@ enum PokemonOdds {
     static let dittoSpeciesID = 132
     /// Pity: after this many repeat hatches in a row, the next egg is drawn only among bases with no
     /// collected final (still weighted by capture rate). It bounds droughts without touching the normal
-    /// odds — the collected-base ½ weight stays (#254 kept it so re-hatch and shiny hunting stay open).
+    /// odds — the collected-base ½ weight in `chooseBase` and the 2× repeat growth (#253, #254) stay as
+    /// they are, so re-hatching and shiny hunting remain open.
     /// Why a cap and not a smaller multiplier: the ½ penalty scales with capture rate, so a collected
-    /// common (255→127) still outweighs an uncollected legendary (3) ~40×. On a measured late-game save
-    /// (292 of 328 lines graduated) 48 of the last 50 hatches were repeats and the next egg was new only
-    /// 5.2% of the time; 1/10 lifts that to 21.7% and 1/50 only to 59.4%. See #253.
+    /// common (255→127) still outweighs an uncollected legendary (3) ~40×. A smaller multiplier only
+    /// thins repeats out gradually; a cap bounds the run outright.
     static let repeatHatchPityThreshold = 5
 }
 
