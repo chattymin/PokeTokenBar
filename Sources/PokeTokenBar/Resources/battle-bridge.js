@@ -26,7 +26,9 @@
   function load(file) {
     if (cache[file]) return cache[file].exports;
     const module = cache[file] = {exports: {}};
-    const src = __read(file);
+    let src = __read(file);
+    // The log templates are private to @pkmn/view; hand them out so they can be localized below.
+    if (file.startsWith('@pkmn/view/')) src += '\nif (typeof text_exports !== "undefined") module.exports.__text = text_exports;';
     if (file.endsWith('.json')) { module.exports = JSON.parse(src); return module.exports; }
     const fn = (0, eval)('(function(require,module,exports){' + src + '\n})\n//# sourceURL=' + file);
     fn(id => { if (stubs[id]) return stubs[id]; const f = resolve(file, id); if (!f) throw new Error('cannot find ' + id + ' from ' + file); return load(f); }, module, module.exports);
@@ -38,7 +40,7 @@
 // MARK: Battle API
 const {Battle, Dex} = __require('@pkmn/sim');
 const {Protocol} = __require('@pkmn/protocol');
-const {LogFormatter} = __require('@pkmn/view');
+const {LogFormatter, __text: Text} = __require('@pkmn/view');
 
 // Gen 5 mechanics (the app's species/learnsets stop at Gen V). Teams are already picked, so no preview.
 const FORMAT = 'gen5ubers@@@!Team Preview,!Sleep Clause Mod,!Species Clause,!Nickname Clause';
@@ -48,6 +50,17 @@ const SIDES = ['p1', 'p2'];
 let battle = null;
 let cursor = 0;          // battle.log lines already delivered
 let formatters = null;
+let langs = {p1: 'en', p2: 'en'};
+
+// Localized text (bundled with the app, one JSON per language): {log: {effect: {template: text}},
+// moves: {moveid: description}}. English is the simulator's own text and the fallback for the rest.
+const english = {};
+for (const id of Object.keys(Text || {})) if (id !== 'default') english[id] = {...Text[id]};
+const languages = {};
+function useText(lang) {
+  const log = languages[lang]?.log || {};
+  for (const id in english) Object.assign(Text[id], english[id], log[id]);
+}
 
 const text = (v, max) => String(v ?? '').slice(0, max);
 const clamp = (v, lo, hi) => Math.min(hi, Math.max(lo, Math.trunc(Number(v)) || lo));
@@ -81,8 +94,24 @@ function toTeam(raw) {
   return raw.slice(0, TEAM_SIZE).map(toSet);
 }
 
+// Type chart only: abilities such as Levitate are not counted.
+const multiplier = (attack, types) => types.reduce((m, t) =>
+  battle.dex.getImmunity(attack, t) ? m * 2 ** battle.dex.getEffectiveness(attack, t) : 0, 1);
+
+/// What hits this Pokémon for how much, and what its own types hit (entries at x1 are left out).
+function matchups(p) {
+  const types = p.getTypes(), all = battle.dex.types.names();
+  const notNeutral = entries => Object.fromEntries(entries.filter(([, m]) => m !== 1));
+  return {
+    types,
+    defense: notNeutral(all.map(t => [t, multiplier(t, types)])),
+    offense: Object.fromEntries(types.map(own => [own, notNeutral(all.map(t => [t, multiplier(own, [t])]))])),
+  };
+}
+
 function mon(p, exact) {
   return {
+    ...(p.isActive && !p.fainted ? matchups(p) : {}),
     name: p.name,
     species: p.species.name,
     dex: p.species.num,
@@ -97,7 +126,7 @@ function mon(p, exact) {
   };
 }
 
-function request(side) {
+function request(side, lang) {
   const req = side.activeRequest;
   // A side that already locked in its choice waits for the other one (no undo).
   if (!req || req.wait || battle.ended || side.isChoiceDone()) return {kind: 'wait'};
@@ -106,14 +135,24 @@ function request(side) {
   const active = req.active[0];
   return {
     kind: 'move',
-    moves: active.moves.map((m, i) => ({
-      slot: i + 1,
-      name: m.move,
-      type: Dex.moves.get(m.id).type,
-      pp: m.pp ?? 0,
-      maxpp: m.maxpp ?? 0,
-      disabled: !!m.disabled,
-    })),
+    moves: active.moves.map((m, i) => {
+      const move = battle.dex.moves.get(m.id), foe = side.foe.active[0];
+      return {
+        slot: i + 1,
+        name: m.move,
+        type: move.type,
+        pp: m.pp ?? 0,
+        maxpp: m.maxpp ?? 0,
+        disabled: !!m.disabled,
+        category: move.category,
+        power: move.basePower || 0,
+        accuracy: move.accuracy === true ? 0 : move.accuracy,   // 0 = never misses
+        priority: move.priority || 0,
+        desc: languages[lang]?.moves?.[move.id] || move.shortDesc || '',
+        // Against the opponent on the field; absent for status moves and an empty field.
+        ...(move.category !== 'Status' && foe && !foe.fainted ? {effect: multiplier(move.type, foe.getTypes())} : {}),
+      };
+    }),
     switches: active.trapped ? [] : switches,
   };
 }
@@ -140,6 +179,7 @@ function snapshots() {
   const out = {};
   for (const id of SIDES) {
     const side = battle[id];
+    useText(langs[id]);
     out[id] = {
       turn: battle.turn,
       ended: battle.ended,
@@ -151,16 +191,21 @@ function snapshots() {
         left: side.foe.pokemonLeft,
         team: side.foe.pokemon.filter(p => p.isActive || p.previouslySwitchedIn > 0).map(p => mon(p, false)),
       },
-      request: request(side),
+      request: request(side, langs[id]),
     };
   }
   return JSON.stringify(out);
 }
 
 globalThis.PTBBattle = {
-  // players: {p1: {name, team}, p2: {name, team}} — returns {p1: snapshot, p2: snapshot} or throws.
+  // Registers one language's text; a side that asks for an unknown language reads English.
+  addLanguage(lang, json) {
+    languages[lang] = JSON.parse(json);
+  },
+  // players: {p1: {name, lang, team}, p2: {...}} — returns {p1: snapshot, p2: snapshot} or throws.
   start(json) {
     const players = JSON.parse(json);
+    langs = {p1: text(players.p1.lang, 8), p2: text(players.p2.lang, 8)};
     battle = new Battle({formatid: FORMAT});
     cursor = 0;
     formatters = {p1: new LogFormatter('p1'), p2: new LogFormatter('p2')};

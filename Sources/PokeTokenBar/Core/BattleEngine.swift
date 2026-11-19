@@ -42,6 +42,8 @@ struct BattleTeamMember: Codable, Sendable, Equatable {
 struct BattlePlayer: Codable, Sendable, Equatable {
     var name: String
     var team: [BattleTeamMember]
+    /// `AppLanguage` code the battle log and move descriptions are phrased in for this player.
+    var lang: String?
 }
 
 /// What one side is allowed to see after the simulator advanced. Produced by `entry.js`.
@@ -60,6 +62,11 @@ struct BattleSnapshot: Codable, Sendable, Equatable {
         var status: String
         var fainted: Bool
         var active: Bool
+        /// Only for a Pokémon on the field. Multipliers by attacking type against it (`defense`) and by
+        /// defending type for each of its own types (`offense`); x1 entries are left out.
+        var types: [String]?
+        var defense: [String: Double]?
+        var offense: [String: [String: Double]]?
 
         var form: PokemonForm? {
             PokemonForm.resolved(speciesID: dex, form: sprite.isEmpty ? nil : PokemonForm(sprite))
@@ -82,6 +89,15 @@ struct BattleSnapshot: Codable, Sendable, Equatable {
         var pp: Int
         var maxpp: Int
         var disabled: Bool
+        /// "Physical" / "Special" / "Status".
+        var category: String?
+        var power: Int?
+        /// 0 = never misses.
+        var accuracy: Int?
+        var priority: Int?
+        var desc: String?
+        /// Type multiplier against the opponent on the field; nil for status moves.
+        var effect: Double?
     }
 
     struct Request: Codable, Sendable, Equatable {
@@ -234,6 +250,14 @@ final class BattleEngine {
             throw BattleEngineError.scriptMissing
         }
         self.bridge = bridge
+        // Translations the app ships (its own wording, not simulator data): battle-text-<lang>.json.
+        for language in AppLanguage.allCases {
+            let name = "battle-text-\(language.rawValue)"
+            guard let file = Bundle.main.url(forResource: name, withExtension: "json")
+                    ?? Bundle.module.url(forResource: name, withExtension: "json"),
+                  let text = try? String(contentsOf: file, encoding: .utf8) else { continue }
+            bridge.invokeMethod("addLanguage", withArguments: [language.rawValue, text])
+        }
     }
 
     func start(host: BattlePlayer, guest: BattlePlayer) throws -> [SideID: BattleSnapshot] {

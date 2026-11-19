@@ -17,6 +17,8 @@ enum BattleMessage: Codable, Sendable, Equatable {
     /// Scanner → lobby: "is a player here?" (VPNs carry no Bonjour). Answered with `.info`, then closed.
     case probe
     case info(name: String)
+    /// Either way, during a battle.
+    case chat(String)
 }
 
 /// A LAN battle between two PokeTokenBar instances.
@@ -31,7 +33,8 @@ enum BattleMessage: Codable, Sendable, Equatable {
 @Observable
 final class BattleSession {
     static let serviceType = "_ptbbattle._tcp"
-    static let protocolVersion = 1
+    static let protocolVersion = 2
+    static let maxChatLength = 200
     /// Fixed so an address alone is enough to connect and a VPN subnet can be probed. A random port
     /// is the fallback when this one is taken (a second instance on the same Mac).
     static let defaultPort: NWEndpoint.Port = 47806
@@ -53,6 +56,12 @@ final class BattleSession {
         case battle
     }
 
+    /// One line of the battle log; `author` is set for chat messages.
+    struct Line: Equatable {
+        var text: String
+        var author: String?
+    }
+
     enum Notice: Equatable {
         case declined, disconnected, engineFailed, networkFailed
     }
@@ -62,7 +71,7 @@ final class BattleSession {
     var peers: [Peer] { browsed + scanned }
     private(set) var scanning = false
     private(set) var snapshot: BattleSnapshot?
-    private(set) var log: [String] = []
+    private(set) var log: [Line] = []
     private(set) var notice: Notice?
     /// The simulator's explanation of why the last choice was refused (English, from Showdown).
     private(set) var rejection: String?
@@ -286,6 +295,14 @@ final class BattleSession {
         }
     }
 
+    /// Chat shares the battle log, so it reads in order with the moves it comments on.
+    func say(_ text: String) {
+        let text = String(text.trimmingCharacters(in: .whitespacesAndNewlines).prefix(Self.maxChatLength))
+        guard phase == .battle, connection != nil, !text.isEmpty else { return }
+        append([Line(text: text, author: player.name)])
+        send(.chat(text))
+    }
+
     /// Back to the lobby from a running or finished battle.
     func leaveBattle() {
         guard phase == .battle else { return }
@@ -471,7 +488,7 @@ final class BattleSession {
                 return
             }
             let name = String(player.name.prefix(24))
-            guest = BattlePlayer(name: name, team: Array(player.team.prefix(3)))
+            guest = BattlePlayer(name: name, team: Array(player.team.prefix(3)), lang: player.lang)
             phase = .incoming(name)
         case .declined:
             guard isChallenger else { return }
@@ -504,6 +521,9 @@ final class BattleSession {
             closeAfterSending(.info(name: player.name))
         case .info:
             break
+        case let .chat(text):
+            guard phase == .battle, let author = snapshot?.foe.name, !text.isEmpty else { return }
+            append([Line(text: String(text.prefix(Self.maxChatLength)), author: author)])
         }
     }
 
@@ -515,7 +535,11 @@ final class BattleSession {
 
     private func apply(_ snapshot: BattleSnapshot) {
         self.snapshot = snapshot
-        log.append(contentsOf: snapshot.log)
+        append(snapshot.log.map { Line(text: $0) })
+    }
+
+    private func append(_ lines: [Line]) {
+        log.append(contentsOf: lines)
         if log.count > Self.maxLogLines { log.removeFirst(log.count - Self.maxLogLines) }
     }
 

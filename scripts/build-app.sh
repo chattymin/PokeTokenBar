@@ -33,7 +33,7 @@ echo "   archs: $(lipo -archs "$APP/Contents/MacOS/$APP_NAME")"
 strip -rSTx "$APP/Contents/MacOS/$APP_NAME" 2>/dev/null || strip -rSx "$APP/Contents/MacOS/$APP_NAME"
 cp assets/AppIcon.icns "$APP/Contents/Resources/AppIcon.icns"
 # LAN battles: the bridge script BattleEngine loads via Bundle.main (the simulator is fetched at runtime).
-cp Sources/PokeTokenBar/Resources/battle-bridge.js "$APP/Contents/Resources/battle-bridge.js"
+cp Sources/PokeTokenBar/Resources/battle-bridge.js Sources/PokeTokenBar/Resources/battle-text-*.json "$APP/Contents/Resources/"
 
 cat > "$APP/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>

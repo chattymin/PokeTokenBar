@@ -67,6 +67,52 @@ final class BattleTests: XCTestCase {
         }
     }
 
+    /// Each side reads the log and move descriptions in its own language; names stay English.
+    func testEngineLocalizesTextPerSideAndDescribesMovesAndTypes() async throws {
+        var host = ash, guest = gary
+        host.lang = "ru"
+        guest.lang = "en"
+        let engine = try BattleEngine(directory: try await engineDirectory())
+        var snapshots = try engine.start(host: host, guest: guest)
+        var ru = try XCTUnwrap(snapshots[.p1]), en = try XCTUnwrap(snapshots[.p2])
+        XCTAssertTrue(ru.log.contains("Вперёд, Mon3 (Venusaur)!"), "\(ru.log)")
+        XCTAssertTrue(en.log.contains("Go! Mon9 (Blastoise)!"), "\(en.log)")
+
+        // Venusaur (Grass/Poison) against Blastoise (Water).
+        let vineWhip = try XCTUnwrap(ru.request.moves?.first)
+        XCTAssertEqual([vineWhip.category, vineWhip.type], ["Physical", "Grass"])
+        XCTAssertEqual([vineWhip.power, vineWhip.accuracy, vineWhip.priority], [35, 100, 0])
+        XCTAssertEqual(vineWhip.effect, 2)
+        XCTAssertEqual(vineWhip.desc, "Без дополнительного эффекта.")
+        XCTAssertEqual(en.request.moves?.first?.desc, "No additional effect.")
+        XCTAssertEqual(en.request.moves?.first?.effect, 0.5, "Water Gun into Grass")
+        XCTAssertEqual(BattleView.facts(vineWhip, L(.ru)), "Травяной · Физическая · Сила 35 · Точность 100%")
+
+        let venusaur = try XCTUnwrap(ru.me.active), blastoise = try XCTUnwrap(ru.foe.active)
+        XCTAssertEqual(venusaur.types, ["Grass", "Poison"])
+        XCTAssertEqual(venusaur.defense, ["Fire": 2, "Ice": 2, "Flying": 2, "Psychic": 2,
+                                          "Water": 0.5, "Electric": 0.5, "Fighting": 0.5, "Grass": 0.25])
+        XCTAssertEqual(venusaur.offense?["Poison"], ["Grass": 2, "Poison": 0.5, "Ground": 0.5, "Rock": 0.5,
+                                                     "Ghost": 0.5, "Steel": 0])
+        XCTAssertEqual(blastoise.defense, ["Electric": 2, "Grass": 2, "Fire": 0.5, "Water": 0.5, "Ice": 0.5, "Steel": 0.5])
+        XCTAssertNil(ru.me.team.last?.defense, "only the Pokémon on the field carries matchups")
+        XCTAssertEqual([4, 0.5, 0.25, 0].map(BattleView.times), ["×4", "×½", "×¼", "×0"])
+        for (type, style) in BattleView.typeStyles {
+            XCTAssertNotEqual(L(.ru).battleType(type), type, "\(type) has a localized name")
+            XCTAssertNotNil(NSImage(systemSymbolName: style.symbol, accessibilityDescription: nil), style.symbol)
+        }
+        XCTAssertEqual(BattleView.typeStyles.count, 17)
+
+        _ = try engine.choose(.p1, "move 1")
+        snapshots = try engine.choose(.p2, "move 1")
+        ru = try XCTUnwrap(snapshots[.p1]); en = try XCTUnwrap(snapshots[.p2])
+        XCTAssertTrue(ru.log.contains("Mon3 использует Vine Whip!"), "\(ru.log)")
+        XCTAssertTrue(ru.log.contains("Это суперэффективно!"))
+        XCTAssertTrue(ru.log.contains("Mon9 соперника использует Water Gun!"))
+        XCTAssertTrue(en.log.contains("The opposing Mon3 used Vine Whip!"), "\(en.log)")
+        XCTAssertTrue(en.log.contains("It's super effective!"))
+    }
+
     func testEngineUsesProfileDataAndRealLevels() async throws {
         let snapshots = try BattleEngine(directory: try await engineDirectory()).start(host: ash, guest: gary)
         let p1 = try XCTUnwrap(snapshots[.p1]), p2 = try XCTUnwrap(snapshots[.p2])
@@ -134,6 +180,14 @@ final class BattleTests: XCTestCase {
         XCTAssertEqual(guest.snapshot?.me.active?.dex, 9)
         XCTAssertEqual(host.snapshot?.me.active?.dex, 3)
 
+        // Chat lands in both logs, in order, with its author; the wire copy is clipped.
+        guest.say("  gl hf  ")
+        host.say(String(repeating: "x", count: 500))
+        try await wait { host.log.contains { $0.author == "Gary" } && guest.log.contains { $0.author == "Ash" } }
+        XCTAssertEqual(host.log.first { $0.author == "Gary" }?.text, "gl hf")
+        XCTAssertEqual(guest.log.first { $0.author == "Ash" }?.text.count, BattleSession.maxChatLength)
+        XCTAssertEqual(guest.log.filter { $0.author == "Gary" }.count, 1, "the sender sees their own line once")
+
         for _ in 0..<400 where host.snapshot?.ended == false {
             let turnLog = host.log.count
             for session in [host, guest] {
@@ -187,7 +241,9 @@ final class BattleTests: XCTestCase {
         try FileManager.default.createDirectory(at: output, withIntermediateDirectories: true)
 
         var state = CompanionState()
-        state.language = .en
+        // PTB_BATTLE_SCREENSHOT_LANG=ru renders the localized log and move descriptions.
+        let language = ProcessInfo.processInfo.environment["PTB_BATTLE_SCREENSHOT_LANG"].flatMap(AppLanguage.init) ?? .en
+        state.language = language
         state.dex = [(3, "Venusaur", 50), (6, "Charizard", 47), (9, "Blastoise", 52), (25, "Pikachu", 30),
                      (143, "Snorlax", 45), (94, "Gengar", 41), (130, "Gyarados", 38), (149, "Dragonite", 61)]
             .map { id, name, level in
@@ -205,7 +261,9 @@ final class BattleTests: XCTestCase {
         defer { host.stop(); guest.stop() }
         try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "team")
 
-        host.enterLobby(as: ash)
+        var me = ash
+        me.lang = language.rawValue
+        host.enterLobby(as: me)
         guest.enterLobby(as: gary)
         try await wait { host.port != nil }
         guest.challenge(endpoint: .hostPort(host: "127.0.0.1", port: try XCTUnwrap(host.port)), name: "Ash")
@@ -217,14 +275,20 @@ final class BattleTests: XCTestCase {
         host.choose("move 1")
         guest.choose("move 1")
         try await wait { host.snapshot?.turn == 2 }
-        try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "battle")
+        guest.say("gl hf!")
+        try await wait { host.log.contains { $0.author != nil } }
+        let battle = BattleView(store: store, session: host, playerName: "Ash")
+        try await render(battle, to: output, name: "battle")
+        try await render(battle.typeChart(try XCTUnwrap(host.snapshot)), to: output, name: "types",
+                         size: NSSize(width: 340, height: 330))
     }
 
-    private func render(_ content: some View, to directory: URL, name: String) async throws {
+    private func render(_ content: some View, to directory: URL, name: String,
+                        size: NSSize = NSSize(width: 400, height: 700)) async throws {
         let view = NSHostingView(rootView: content.environment(\.controlActiveState, .active)
             .background(Color(nsColor: .windowBackgroundColor)))
-        view.frame = NSRect(x: 0, y: 0, width: 400, height: 620)
-        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000, width: 400, height: 620),
+        view.frame = NSRect(origin: .zero, size: size)
+        let window = NSWindow(contentRect: NSRect(origin: NSPoint(x: -10000, y: -10000), size: size),
                               styleMask: [.borderless], backing: .buffered, defer: false)
         window.isReleasedWhenClosed = false
         defer { window.orderOut(nil) }

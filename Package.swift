@@ -9,7 +9,7 @@ let package = Package(
             name: "PokeTokenBar",
             path: "Sources/PokeTokenBar",
             // Glue for LAN battles; the simulator itself is downloaded at runtime (BattleEngine.swift).
-            resources: [.copy("Resources/battle-bridge.js")],
+            resources: [.copy("Resources/battle-bridge.js"), .copy("Resources/battle-text-ru.json")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(

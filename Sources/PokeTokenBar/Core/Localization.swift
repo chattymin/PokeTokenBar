@@ -2007,6 +2007,48 @@ struct L {
     var battleAddressPlaceholder: String { t("상대의 주소", "Their address", "相手のアドレス", "Su dirección", "Son adresse", "Endereço dele", "Seine Adresse", "Адрес соперника") }
     var battleScanVPN: String { t("VPN에서 찾기", "Search the VPN", "VPNで探す", "Buscar en la VPN", "Chercher sur le VPN", "Procurar na VPN", "Im VPN suchen", "Искать в VPN") }
     var battleConnect: String { t("연결", "Connect", "接続", "Conectar", "Connexion", "Conectar", "Verbinden", "Подключиться") }
+    var battleChatPlaceholder: String { t("메시지 보내기", "Send a message", "メッセージを送る", "Enviar un mensaje", "Envoyer un message", "Enviar uma mensagem", "Nachricht senden", "Написать сообщение") }
+    var battleTypes: String { t("타입 상성", "Type matchups", "タイプ相性", "Tabla de tipos", "Table des types", "Tabela de tipos", "Typen-Tabelle", "Типы и урон") }
+    var battleTakesDamage: String { t("받는 데미지", "Takes damage from", "受けるダメージ", "Recibe daño de", "Subit des dégâts de", "Recebe dano de", "Erleidet Schaden durch", "Получает урон от") }
+    func battleDealsDamage(_ type: String) -> String {
+        t("\(type) 기술의 데미지", "\(type) moves hit", "\(type)技のダメージ", "Ataques \(type) contra", "Attaques \(type) contre",
+          "Ataques \(type) contra", "\(type)-Attacken gegen", "Атаки типа «\(type)» бьют")
+    }
+    var battleTypesNote: String { t("타입 상성만 반영합니다. 특성은 계산하지 않습니다.", "Type chart only; abilities are not counted.", "タイプ相性のみ。特性は計算しません。", "Solo tabla de tipos; no se cuentan las habilidades.", "Table des types seule ; les talents ne sont pas pris en compte.", "Só a tabela de tipos; habilidades não contam.", "Nur Typen-Tabelle; Fähigkeiten zählen nicht.", "Только таблица типов, способности не учитываются.") }
+    var battlePower: String { t("위력", "Power", "威力", "Potencia", "Puissance", "Poder", "Stärke", "Сила") }
+    var battleAccuracy: String { t("명중", "Accuracy", "命中", "Precisión", "Précision", "Precisão", "Genauigkeit", "Точность") }
+    var battlePriority: String { t("우선도", "Priority", "優先度", "Prioridad", "Priorité", "Prioridade", "Priorität", "Приоритет") }
+    func battleCategory(_ category: String) -> String {
+        switch category {
+        case "Physical": return t("물리", "Physical", "物理", "Físico", "Physique", "Físico", "Physisch", "Физическая")
+        case "Special": return t("특수", "Special", "特殊", "Especial", "Spécial", "Especial", "Spezial", "Специальная")
+        case "Status": return t("변화", "Status", "変化", "Estado", "Statut", "Status", "Status", "Статусная")
+        default: return category
+        }
+    }
+    /// `type` is the simulator's English type name; an unknown one is shown as-is.
+    func battleType(_ type: String) -> String {
+        switch type {
+        case "Normal": return t("노말", "Normal", "ノーマル", "Normal", "Normal", "Normal", "Normal", "Обычный")
+        case "Fire": return t("불꽃", "Fire", "ほのお", "Fuego", "Feu", "Fogo", "Feuer", "Огненный")
+        case "Water": return t("물", "Water", "みず", "Agua", "Eau", "Água", "Wasser", "Водный")
+        case "Electric": return t("전기", "Electric", "でんき", "Eléctrico", "Électrik", "Elétrico", "Elektro", "Электрический")
+        case "Grass": return t("풀", "Grass", "くさ", "Planta", "Plante", "Planta", "Pflanze", "Травяной")
+        case "Ice": return t("얼음", "Ice", "こおり", "Hielo", "Glace", "Gelo", "Eis", "Ледяной")
+        case "Fighting": return t("격투", "Fighting", "かくとう", "Lucha", "Combat", "Lutador", "Kampf", "Боевой")
+        case "Poison": return t("독", "Poison", "どく", "Veneno", "Poison", "Venenoso", "Gift", "Ядовитый")
+        case "Ground": return t("땅", "Ground", "じめん", "Tierra", "Sol", "Terrestre", "Boden", "Земляной")
+        case "Flying": return t("비행", "Flying", "ひこう", "Volador", "Vol", "Voador", "Flug", "Летающий")
+        case "Psychic": return t("에스퍼", "Psychic", "エスパー", "Psíquico", "Psy", "Psíquico", "Psycho", "Психический")
+        case "Bug": return t("벌레", "Bug", "むし", "Bicho", "Insecte", "Inseto", "Käfer", "Насекомое")
+        case "Rock": return t("바위", "Rock", "いわ", "Roca", "Roche", "Pedra", "Gestein", "Каменный")
+        case "Ghost": return t("고스트", "Ghost", "ゴースト", "Fantasma", "Spectre", "Fantasma", "Geist", "Призрачный")
+        case "Dragon": return t("드래곤", "Dragon", "ドラゴン", "Dragón", "Dragon", "Dragão", "Drache", "Драконий")
+        case "Dark": return t("악", "Dark", "あく", "Siniestro", "Ténèbres", "Sombrio", "Unlicht", "Тёмный")
+        case "Steel": return t("강철", "Steel", "はがね", "Acero", "Acier", "Aço", "Stahl", "Стальной")
+        default: return type
+        }
+    }
     var battleChallenge: String { t("도전", "Challenge", "挑戦", "Desafiar", "Défier", "Desafiar", "Herausfordern", "Вызвать") }
     func battleChallenging(_ name: String) -> String {
         t("\(name) 님의 응답을 기다리는 중…", "Waiting for \(name) to answer…", "\(name) さんの返事を待っています…",

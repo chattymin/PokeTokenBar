@@ -15,7 +15,7 @@ final class BattleWindowController: NSObject, NSWindowDelegate {
 
     func show() {
         if window == nil {
-            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 620),
+            let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 400, height: 700),
                                   styleMask: [.titled, .closable, .miniaturizable],
                                   backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
@@ -51,6 +51,9 @@ struct BattleView: View {
     @State private var downloadFailed = false
     @State private var confirmingForfeit = false
     @State private var address = ""
+    @State private var draft = ""
+    @State private var hoveredMove: Int?
+    @State private var showingTypes = false
 
     private var l: L { store.l }
     private var roster: [DexEntry] {
@@ -66,7 +69,7 @@ struct BattleView: View {
             }
         }
         .padding(14)
-        .frame(width: 400, height: 620)
+        .frame(width: 400, height: 700)
     }
 
     // MARK: Team
@@ -155,7 +158,7 @@ struct BattleView: View {
                 .map { BattleTeamMember(entry: $0, name: store.dexEntryName($0)) }
             preparing = false
             guard !team.isEmpty else { return }
-            session.enterLobby(as: BattlePlayer(name: playerName, team: team))
+            session.enterLobby(as: BattlePlayer(name: playerName, team: team, lang: l.lang.rawValue))
         }
     }
 
@@ -241,7 +244,16 @@ struct BattleView: View {
         if let snapshot = session.snapshot {
             VStack(spacing: 10) {
                 HStack(alignment: .bottom) {
-                    if let foe = snapshot.foe.active { status(foe, owner: snapshot.foe.name, exact: false) }
+                    VStack(alignment: .leading, spacing: 4) {
+                        Button {
+                            showingTypes.toggle()
+                        } label: {
+                            Label(l.battleTypes, systemImage: "shield.lefthalf.filled").font(.caption)
+                        }
+                        .buttonStyle(.borderless)
+                        .popover(isPresented: $showingTypes, arrowEdge: .bottom) { typeChart(snapshot) }
+                        if let foe = snapshot.foe.active { status(foe, owner: snapshot.foe.name, exact: false) }
+                    }
                     Spacer()
                     sprite(snapshot.foe.active, back: false)
                 }
@@ -251,6 +263,12 @@ struct BattleView: View {
                     if let mine = snapshot.me.active { status(mine, owner: snapshot.me.name, exact: true) }
                 }
                 battleLog
+                TextField(l.battleChatPlaceholder, text: $draft)
+                    .textFieldStyle(.roundedBorder)
+                    .onSubmit {
+                        session.say(draft)
+                        draft = ""
+                    }
                 controls(snapshot)
             }
         }
@@ -291,9 +309,16 @@ struct BattleView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     ForEach(Array(session.log.enumerated()), id: \.offset) { _, line in
-                        Text(line)
-                            .font(line.hasPrefix("==") ? .caption.bold() : .caption)
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                        Group {
+                            if let author = line.author {
+                                Text("\(author): ").bold().foregroundStyle(Color.accentColor) + Text(line.text)
+                            } else {
+                                Text(line.text).fontWeight(line.text.hasPrefix("==") ? .bold : .regular)
+                            }
+                        }
+                        .font(.caption)
+                        .textSelection(.enabled)
+                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
                     Color.clear.frame(height: 1).id("end")
                 }
@@ -324,15 +349,20 @@ struct BattleView: View {
                         } label: {
                             VStack(spacing: 1) {
                                 Text(move.name).lineLimit(1)
-                                Text("\(move.type) · \(move.pp)/\(move.maxpp)")
+                                Text("\(l.battleType(move.type)) · \(move.pp)/\(move.maxpp)"
+                                     + (move.effect.map { $0 == 1 ? "" : " · \(Self.times($0))" } ?? ""))
                                     .font(.caption2).foregroundStyle(.secondary)
                             }
                             .frame(maxWidth: .infinity)
                         }
                         .controlSize(.large)
                         .disabled(move.disabled)
+                        .onHover { inside in
+                            if inside { hoveredMove = move.slot } else if hoveredMove == move.slot { hoveredMove = nil }
+                        }
                     }
                 }
+                moveDetails(snapshot.request.moves?.first { $0.slot == hoveredMove })
                 switches(snapshot)
             case "switch":
                 Text(l.battleChooseNext).font(.callout)
@@ -352,6 +382,99 @@ struct BattleView: View {
                 }
         }
     }
+
+    /// The hovered move's numbers and effect. The height is reserved so the buttons never jump.
+    private func moveDetails(_ move: BattleSnapshot.Move?) -> some View {
+        VStack(alignment: .leading, spacing: 2) {
+            if let move {
+                Text(Self.facts(move, l)).font(.caption2.bold())
+                Text(move.desc ?? "").font(.caption2).foregroundStyle(.secondary)
+            }
+        }
+        .lineLimit(2)
+        .frame(maxWidth: .infinity, minHeight: 44, maxHeight: 44, alignment: .topLeading)
+    }
+
+    static func facts(_ move: BattleSnapshot.Move, _ l: L) -> String {
+        var facts = [l.battleType(move.type)]
+        if let category = move.category { facts.append(l.battleCategory(category)) }
+        if let power = move.power, power > 0 { facts.append("\(l.battlePower) \(power)") }
+        if let accuracy = move.accuracy, accuracy > 0 { facts.append("\(l.battleAccuracy) \(accuracy)%") }
+        if let priority = move.priority, priority != 0 {
+            facts.append("\(l.battlePriority) \(priority > 0 ? "+" : "")\(priority)")
+        }
+        return facts.joined(separator: " · ")
+    }
+
+    /// 4 → "×4", 0.5 → "×½".
+    static func times(_ multiplier: Double) -> String {
+        switch multiplier {
+        case 0.5: return "×½"
+        case 0.25: return "×¼"
+        default: return "×" + String(format: "%g", multiplier)
+        }
+    }
+
+    /// Both Pokémon on the field: what hits them for how much, and what their own types hit.
+    func typeChart(_ snapshot: BattleSnapshot) -> some View {
+        VStack(alignment: .leading, spacing: 10) {
+            ForEach([snapshot.me.active, snapshot.foe.active].compactMap { $0 }) { mon in
+                VStack(alignment: .leading, spacing: 3) {
+                    HStack(spacing: 4) {
+                        Text(mon.name).font(.headline)
+                        ForEach(mon.types ?? [], id: \.self) { typeIcon($0) }
+                    }
+                    matchups(l.battleTakesDamage, mon.defense ?? [:])
+                    ForEach((mon.types ?? []).filter { mon.offense?[$0]?.isEmpty == false }, id: \.self) { type in
+                        matchups(l.battleDealsDamage(l.battleType(type)), mon.offense?[type] ?? [:], attack: type)
+                    }
+                }
+            }
+            Text(l.battleTypesNote).font(.caption2).foregroundStyle(.secondary)
+        }
+        .padding(12)
+        .frame(width: 340, alignment: .leading)
+    }
+
+    private func matchups(_ title: String, _ multipliers: [String: Double], attack: String? = nil) -> some View {
+        VStack(alignment: .leading, spacing: 3) {
+            HStack(spacing: 4) {
+                if let attack { typeIcon(attack) }
+                Text(title).font(.caption.bold())
+            }
+            ForEach(Set(multipliers.values).sorted(by: >), id: \.self) { multiplier in
+                HStack(spacing: 3) {
+                    Text(Self.times(multiplier)).font(.caption.monospacedDigit().bold())
+                        .foregroundStyle(multiplier > 1 ? .primary : .secondary)
+                        .frame(width: 24, alignment: .leading)
+                    ForEach(multipliers.filter { $0.value == multiplier }.keys.sorted(), id: \.self) { typeIcon($0) }
+                }
+            }
+        }
+    }
+
+    /// SF Symbols in the conventional type colours (no game artwork); the name shows on hover.
+    private func typeIcon(_ type: String) -> some View {
+        let style = Self.typeStyles[type] ?? ("questionmark", 0x888888)
+        return Image(systemName: style.symbol)
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(.white)
+            .frame(width: 20, height: 20)
+            .background(Circle().fill(Color(red: Double(style.color >> 16 & 0xFF) / 255,
+                                            green: Double(style.color >> 8 & 0xFF) / 255,
+                                            blue: Double(style.color & 0xFF) / 255)))
+            .help(l.battleType(type))
+            .accessibilityLabel(l.battleType(type))
+    }
+
+    static let typeStyles: [String: (symbol: String, color: Int)] = [
+        "Normal": ("circle.fill", 0xA8A77A), "Fire": ("flame.fill", 0xEE8130), "Water": ("drop.fill", 0x6390F0),
+        "Electric": ("bolt.fill", 0xF7D02C), "Grass": ("leaf.fill", 0x7AC74C), "Ice": ("snowflake", 0x96D9D6),
+        "Fighting": ("figure.boxing", 0xC22E28), "Poison": ("cross.vial.fill", 0xA33EA1),
+        "Ground": ("mountain.2.fill", 0xE2BF65), "Flying": ("bird.fill", 0xA98FF3), "Psychic": ("eye.fill", 0xF95587),
+        "Bug": ("ladybug.fill", 0xA6B91A), "Rock": ("hexagon.fill", 0xB6A136), "Ghost": ("eyes.inverse", 0x735797),
+        "Dragon": ("lizard.fill", 0x6F35FC), "Dark": ("moon.fill", 0x705746), "Steel": ("gearshape.fill", 0xB7B7CE),
+    ]
 
     @ViewBuilder
     private func switches(_ snapshot: BattleSnapshot) -> some View {
