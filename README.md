@@ -93,7 +93,7 @@ Filter the Pokédex to <b>Kanto, Johto, Hoenn, Sinnoh, or Unova</b> and check ea
 <td width="45%" align="center"><img src="assets/screenshot-pokemon-forms.png" width="300" alt="Rotom form picker and form-specific individuals"><br><small>Production UI rendered locally with sample Pokémon.</small></td>
 <td width="55%" valign="middle">
 <h3>Collect more than one look</h3>
-Collect Rotom appliances, Shaymin's Land and Sky Formes, Deerling seasons, Unown letters, and other supported Gen 1–5 forms. The Pokédex shows your form count and the individuals in each form. Choose an owned form as your menu-bar and floating-pet representative. An East Sea Shellos keeps its appearance when it becomes Gastrodon, and forms stay in saves and exports. Types, stats, abilities, and moves use the default form’s data.
+Collect Rotom appliances, Shaymin's Land and Sky Formes, Deerling seasons, Unown letters, and other supported Gen 1–5 forms. The Pokédex shows your form count and the individuals in each form. Choose an owned form as your menu-bar and floating-pet representative. An East Sea Shellos keeps its appearance when it becomes Gastrodon, and forms stay in saves and exports. Types, stats, abilities, and moves use the default form’s data. Eggs of the 13 Gen 1–5 lines with a Gigantamax form (Charizard, Pikachu, Snorlax and more) have a 1 in 16 chance to carry the Gigantamax Factor, and the species that has the form shows its Gigantamax appearance.
 </td>
 </tr>
 <tr>
@@ -194,7 +194,7 @@ Reset countdowns include the clock time, and the colored percentage stays aligne
 - **Usage recap** — a Pokédex-style recap of any week, month, or year (total, meters, comparison, best day, best streak, graduations). Hover a meter for its date and full token count, and jump back to This week / This month / This year in one click. History is kept locally for this year and the last.
 
 - **Local save backups** — automatic snapshots and corruption recovery, with a restore screen in Settings. Backup history starts collapsed; expand it to browse snapshots. **Create snapshot** stays available outside the list.
-- **Pokémon forms** — collect Gen 1–5 alternate forms, inspect form-specific individuals, and pin an owned form to the menu bar and floating pet. An individual's form follows evolution and stays in saves and exports; existing Unown letter saves remain readable. See the [form catalog](docs/reference/pokemon-forms.md).
+- **Pokémon forms** — collect Gen 1–5 alternate forms and rare Gigantamax appearances, inspect form-specific individuals, and pin an owned form to the menu bar and floating pet. An individual's form follows evolution and stays in saves and exports; existing Unown letter saves remain readable. See the [form catalog](docs/reference/pokemon-forms.md).
 - **Bulk Rare Candy** — use several candies at once and preview the growth before spending.
 - **Quota pace** — gauge markers show the elapsed share of a limit window; six color tiers indicate usage pace, and menu-bar limit percentages use the same colors.
 
