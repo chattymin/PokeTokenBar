@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-19", entries: [
+            .fixed("2026-11-19-costume-egg-missing-only", { $0.t("코스튬 알의 포켓몬은 아직 없는 코스튬으로만 진화해요. 이미 가진 코스튬(이브이에서 님피아 등)으로는 진화하지 않아요.",
+                                                                 "A Costume Egg's Pokémon now evolves only toward a costume you lack, never into one you already have (an Eevee into Sylveon).",
+                                                                 "コスチュームのタマゴのポケモンは、まだ持っていないコスチュームにだけ進化します。持っているコスチューム（イーブイからニンフィアなど）には進化しません。",
+                                                                 "El Pokémon de un huevo disfrazado solo evoluciona hacia un disfraz que te falta, nunca a uno que ya tienes (un Eevee en Sylveon).",
+                                                                 "Le Pokémon d'un Œuf costumé n'évolue plus que vers un costume qui te manque, jamais vers un que tu as déjà (un Évoli en Nymphali).",
+                                                                 "O Pokémon de um ovo fantasiado só evolui para uma fantasia que falta, nunca para uma que você já tem (um Eevee em Sylveon).",
+                                                                 "Das Pokémon eines Kostüm-Eis entwickelt sich nur noch zu einem Kostüm, das dir fehlt, nie zu einem, das du schon hast (ein Evoli zu Feelinara).",
+                                                                 "Покемон из костюмного яйца теперь эволюционирует только в костюм, которого у тебя нет, а не в уже имеющийся (Иви в Сильвеона).") }),
             .fixed("2026-11-19-held-form-line", { $0.t("포켓몬 페이지의 진화 라인이 기본 모습은 없지만 다른 모습으로 가진 포켓몬(마빌크 다음의 마휘핑 등)을 실루엣 대신 가진 첫 모습으로 보여 주고 그 페이지를 열어요.",
                                                        "A Pokémon's page now shows an evolution you hold in other forms but not its usual one (Alcremie after Milcery) in the first form you hold, and opens its page, instead of a silhouette.",
                                                        "ポケモンのページの進化ラインで、通常の姿はなくても別の姿で持っているポケモン（マホミルの次のマホイップなど）を、シルエットではなく持っている最初の姿で表示し、そのページを開けます。",

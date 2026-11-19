@@ -186,6 +186,28 @@ final class CostumeTests: XCTestCase {
         XCTAssertEqual(s.state.active?.plannedPathIDs, [133], "no Vaporeon nor any Eeveelution not held")
     }
 
+    /// [Regression] The owner, 2026-11-19: an egg's Eevee, drawn for a missing Vaporeon, grew into Sylveon, whose
+    /// costume was held. It grows only toward a costume still missing.
+    func testItGrowsOnlyTowardACostumeMissing() async throws {
+        let held = costumes(["HOLIDAY_2022:133", "HOLIDAY_2022:700"])
+        let s = try store {
+            $0.costumeEggs = [self.egg("e")]
+            $0.dex = [self.plain([133, 134]), self.plain([133, 700])] + held.map(self.dressed)
+        }
+        XCTAssertEqual(s.costumeEggCandidates(month: 12).map(\.key), ["HOLIDAY_2022:133"], "for Vaporeon's")
+        XCTAssertTrue(s.useCostumeEgg("e"))
+        s.setEggUsageForTesting(s.eggHatchThreshold)
+        await s.hatchIfNeeded()
+        XCTAssertEqual(s.currentLine?.tree.children.map(\.speciesID), [134], "Sylveon's costume held: no way to it")
+        XCTAssertEqual(s.state.active?.plannedPathIDs, [133, 134])
+        // Eevee's own missing and every evolution's held: it graduates as it hatched.
+        let line = EvoLine(baseID: 133, tree: EvoNode(speciesID: 133, children: [EvoNode(speciesID: 700, children: [])]),
+                           rarity: .common, names: [:])
+        let eeveeOnly = CompanionStore.costumeLine(line, start: 133, code: "HOLIDAY_2022", form: nil, owned: [133, 700],
+                                                   taken: ["HOLIDAY_2022:700"])
+        XCTAssertEqual(eeveeOnly?.tree.children.count, 0)
+    }
+
     /// [Regression] A friend's report of 2026-11-16: a "can't evolve" costume counted at its hatch, so sending the
     /// Pokémon off at once kept it, and Home still said "New costume". As the Pokédex counts: collected once graduated.
     func testACostumeIsCollectedOnceGraduatedNeverSentOff() async throws {

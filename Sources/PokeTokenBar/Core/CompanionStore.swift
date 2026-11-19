@@ -4380,7 +4380,7 @@ final class CompanionStore {
         // A Costume Egg hatches its first costumed stage, which grows only into the stages wearing its costume.
         let costumeEgg = state.eggFromCostume
         let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form,
-                                                         owned: graduatedSpeciesIDs) }
+                                                         owned: graduatedSpeciesIDs, taken: costumesTaken()) }
             ?? fetched
         let firstID = costumeEgg == nil ? line.baseID : line.tree.speciesID
         currentLine = line
@@ -4494,12 +4494,21 @@ final class CompanionStore {
     /// when the line has no such stage.
     /// `owned`: the species graduated, the only ones it may grow into (the owner, 2026-11-18); nil keeps every stage
     /// wearing the costume (a line reloaded for a Pokémon already raised).
-    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil) -> EvoLine? {
+    /// `taken`: the costumes collected; it grows only toward one still missing (the owner, 2026-11-19: an egg's Eevee
+    /// drawn for a missing Vaporeon grew into Sylveon, whose costume was held). A stage whose costume and later ones
+    /// are all held is left out; none left, it graduates as it hatched.
+    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil,
+                            taken: Set<String> = []) -> EvoLine? {
         guard let node = line.tree.node(withID: start) else { return nil }
+        func missing(_ id: Int) -> Bool {
+            CostumeCatalog.entry(code: code, speciesID: id, form: form).map { !taken.contains($0.key) } ?? false
+        }
         func prune(_ node: EvoNode) -> EvoNode {
             let worn = CostumeCatalog.entry(code: code, speciesID: node.speciesID, form: form)
                 .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID).filter { owned?.contains($0) ?? true }) } ?? []
-            return EvoNode(speciesID: node.speciesID, children: node.children.filter { worn.contains($0.speciesID) }.map(prune))
+            let children = node.children.filter { worn.contains($0.speciesID) }.map(prune)
+                .filter { missing($0.speciesID) || !$0.children.isEmpty }
+            return EvoNode(speciesID: node.speciesID, children: children)
         }
         return EvoLine(baseID: line.baseID, tree: prune(node), rarity: line.rarity, names: line.names)
     }
