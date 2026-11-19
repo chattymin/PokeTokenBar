@@ -232,16 +232,21 @@ final class PokemonFormTests: XCTestCase {
                        "Saves from before Gigantamax keep their cache")
     }
 
-    func testFactorFormsHaveFixedOddsWhateverIsCollected() {
+    func testGigantamaxOddsFavorItWhileItIsUncollected() {
         let forms = [normal, gmax]
-        for collected: Set<PokemonForm> in [[], [normal], [gmax], [normal, gmax]] {
+        let cases: [(collected: Set<PokemonForm>, denominator: UInt64, hits: Int)] = [
+            ([], 8, 200), ([normal], 8, 200), ([gmax], 16, 100), ([normal, gmax], 16, 100),
+        ]
+        XCTAssertEqual(PokemonForm.uncollectedFactorDenominator, 8)
+        XCTAssertEqual(PokemonForm.collectedFactorDenominator, 16)
+        for (collected, denominator, count) in cases {
             let hits = (UInt64(0)..<1600).filter {
                 PokemonForm.roll($0, among: forms, factors: [gmax], collected: collected) == gmax
             }
-            XCTAssertEqual(hits.count, 100, "1 in 16 with collected \(collected)")
-            XCTAssertTrue(hits.allSatisfy { $0 % PokemonForm.factorDenominator == 0 })
+            XCTAssertEqual(hits.count, count, "1 in \(denominator) with collected \(collected)")
+            XCTAssertTrue(hits.allSatisfy { $0 % denominator == 0 }, "collected \(collected)")
         }
-        // Without the factor flag the same two forms would get the 2/1 collection weighting.
+        // Without the factor flag the same two forms would get the 2/1 regular weighting.
         let weighted = (UInt64(0)..<1600).filter {
             PokemonForm.roll($0, among: forms, collected: [normal]) == gmax
         }
@@ -250,42 +255,52 @@ final class PokemonFormTests: XCTestCase {
 
     func testAFactorMissLeavesTheRemainingBitsToTheRegularForms() {
         let a = PokemonForm("a"), b = PokemonForm("b"), x = PokemonForm("x"), y = PokemonForm("y")
-        // Misses (roll % 16 != 0) pass roll / 16 to the 2-and-2 weighted draw among a and b.
+        // Uncollected x: misses (roll % 8 != 0) pass roll / 8 to the 2-and-2 weighted draw among a and b.
         XCTAssertEqual(PokemonForm.roll(1, among: [a, b, x], factors: [x], collected: []), a)
-        XCTAssertEqual(PokemonForm.roll(16 * 2 + 1, among: [a, b, x], factors: [x], collected: []), b)
-        XCTAssertEqual(PokemonForm.roll(16 * 3 + 5, among: [a, b, x], factors: [x], collected: []), b)
-        XCTAssertEqual(PokemonForm.roll(16 * 2, among: [a, b, x], factors: [x], collected: []), x)
-        // Hits pick among several factors with the same remaining bits.
-        XCTAssertEqual(PokemonForm.roll(0, among: [a, x, y], factors: [x, y], collected: []), x)
-        XCTAssertEqual(PokemonForm.roll(16, among: [a, x, y], factors: [x, y], collected: []), y)
+        XCTAssertEqual(PokemonForm.roll(8 * 2 + 1, among: [a, b, x], factors: [x], collected: []), b)
+        XCTAssertEqual(PokemonForm.roll(8 * 3 + 5, among: [a, b, x], factors: [x], collected: []), b)
+        XCTAssertEqual(PokemonForm.roll(8 * 2, among: [a, b, x], factors: [x], collected: []), x)
+        // Collected x: 8 now misses and 16 hits; a miss passes roll / 16.
+        XCTAssertEqual(PokemonForm.roll(8, among: [a, b, x], factors: [x], collected: [x]), a)
+        XCTAssertEqual(PokemonForm.roll(16, among: [a, b, x], factors: [x], collected: [x]), x)
+        XCTAssertEqual(PokemonForm.roll(16 * 2 + 1, among: [a, b, x], factors: [x], collected: [x]), b)
+        // Hits pick among several factors with the same remaining bits; one missing factor keeps 1 in 8.
+        XCTAssertEqual(PokemonForm.roll(0, among: [a, x, y], factors: [x, y], collected: [x]), x)
+        XCTAssertEqual(PokemonForm.roll(8, among: [a, x, y], factors: [x, y], collected: [x]), y)
         // Lines without factors keep their former draw: the whole roll goes to the weighting.
         XCTAssertEqual(PokemonForm.roll(5, among: [plant, sandy, PokemonForm("trash")], collected: []),
                        PokemonForm("trash"))
         XCTAssertEqual(PokemonForm.roll(2, among: [plant, sandy, PokemonForm("trash")], collected: []), sandy)
     }
 
-    func testHatchDrawsGigantamaxOnceFromTheLineRoll() async throws {
-        var outcomes = Set<PokemonForm>()
-        for seed in UInt64(1)...64 {
-            var state = CompanionState()
-            state.inventory = ["mint": 1]
-            let s = try store(state, seed: seed)
-            var rng = SeededRNG(seed: seed)
-            _ = rng.next() // shiny
-            let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
-            _ = (rng.next(), rng.next()) // evolution plan: one pick each for Charmeleon and Charizard
-            _ = rng.next() // profile
-            let expected = rng.next() % PokemonForm.factorDenominator == 0 ? gmax : normal
-            let mintPool = PokemonNature.allCases.filter { $0 != nature }
-            let nextNature = mintPool[Int(rng.next() % UInt64(mintPool.count))]
+    func testHatchDrawsGigantamaxOnceFromTheLineRollWithCollectionOdds() async throws {
+        let ownedGigantamax = DexEntry(baseID: 4, finalID: 6, chainOrder: [4, 5, 6], rarity: .common,
+                                       caughtAt: now, nature: .brave, form: gmax)
+        for (dex, denominator) in [([DexEntry](), PokemonForm.uncollectedFactorDenominator),
+                                   ([ownedGigantamax], PokemonForm.collectedFactorDenominator)] {
+            var outcomes = Set<PokemonForm>()
+            for seed in UInt64(1)...64 {
+                var state = CompanionState()
+                state.inventory = ["mint": 1]
+                state.dex = dex
+                let s = try store(state, seed: seed)
+                var rng = SeededRNG(seed: seed)
+                _ = rng.next() // shiny
+                let nature = PokemonNature.allCases[Int(rng.next() % UInt64(PokemonNature.allCases.count))]
+                _ = (rng.next(), rng.next()) // evolution plan: one pick each for Charmeleon and Charizard
+                _ = rng.next() // profile
+                let expected = rng.next() % denominator == 0 ? gmax : normal
+                let mintPool = PokemonNature.allCases.filter { $0 != nature }
+                let nextNature = mintPool[Int(rng.next() % UInt64(mintPool.count))]
 
-            await s.hatch(baseID: 4)
-            XCTAssertEqual(s.state.active?.form, expected, "seed \(seed)")
-            XCTAssertNil(s.currentForm, "Charmander shows its single look")
-            XCTAssertEqual(s.useMint(), nextNature, "seed \(seed): the form took exactly one draw")
-            outcomes.insert(expected)
+                await s.hatch(baseID: 4)
+                XCTAssertEqual(s.state.active?.form, expected, "1 in \(denominator), seed \(seed)")
+                XCTAssertNil(s.currentForm, "Charmander shows its single look")
+                XCTAssertEqual(s.useMint(), nextNature, "seed \(seed): the form took exactly one draw")
+                outcomes.insert(expected)
+            }
+            XCTAssertEqual(outcomes, [normal, gmax], "1 in \(denominator): the seeds cover a hit and a miss")
         }
-        XCTAssertEqual(outcomes, [normal, gmax], "The seeds cover both a hit and a miss")
     }
 
     func testGigantamaxIsNamedByTheAppInEveryLanguage() {

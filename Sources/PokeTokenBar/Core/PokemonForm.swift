@@ -43,8 +43,8 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
     /// `pokemonID` is the PokéAPI variety whose static PNG holds this form (`10006.png` for Sky
     /// Shaymin); nil means the static sprite is named like the animated one (`412-sandy.png`).
     /// `formID` is the PokéAPI `pokemon-form` resource that carries the localized form names.
-    /// `isFactor` marks an individual trait with fixed odds (`factorDenominator`) instead of a
-    /// collection-weighted form, like the Gigantamax Factor.
+    /// `isFactor` marks an individual trait with its own odds (`uncollectedFactorDenominator`,
+    /// `collectedFactorDenominator`) instead of the regular form weighting, like the Gigantamax Factor.
     struct Entry: Sendable {
         let form: PokemonForm
         let formID: Int
@@ -185,10 +185,14 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
         return forms(speciesID: speciesID).firstIndex(of: form) ?? 0
     }
 
-    /// Odds of a factor form such as Gigantamax: rarer than a regular form (which the collection
-    /// weighting hands out about every other hatch in a two-form line), still more common than a
-    /// shiny (1/64). The maintainer may tune it; it only changes how often factor lines hit.
-    static let factorDenominator: UInt64 = 16
+    /// Odds of a factor form such as Gigantamax. Both are rarer than a regular form (which the
+    /// collection weighting hands out about every other hatch in a two-form line) and more common
+    /// than a shiny (1/64). Like `CollectionWeight`, the chance doubles while the line's factor is
+    /// still missing from the collection, so players get the appearance they do not have yet sooner,
+    /// and halves once it is owned. The maintainer may tune both; they only change how often
+    /// factor lines hit.
+    static let uncollectedFactorDenominator: UInt64 = 8
+    static let collectedFactorDenominator: UInt64 = 16
 
     /// Forms of the line that are factor traits rather than collection-weighted forms.
     static func factorForms(baseID: Int) -> Set<PokemonForm> {
@@ -196,17 +200,20 @@ struct PokemonForm: RawRepresentable, Codable, Hashable, Sendable {
     }
 
     /// Chosen only after the species roll, from one random value so a hatch consumes a single draw.
-    /// A line with factor forms first spends `roll % factorDenominator`: zero picks a factor (with
-    /// fixed odds, whether collected or not). Otherwise the remaining bits pick among the other
-    /// forms, where uncollected forms weigh 2 and collected forms weigh 1.
+    /// A line with factor forms first spends `roll % denominator`: zero picks a factor. The
+    /// denominator is 8 while any factor of the line is uncollected and 16 once all are. Otherwise
+    /// the remaining bits pick among the other forms, where uncollected forms weigh 2 and collected
+    /// forms weigh 1.
     static func roll(_ roll: UInt64, among forms: [PokemonForm], factors: Set<PokemonForm> = [],
                      collected: Set<PokemonForm>) -> PokemonForm {
         let factorForms = forms.filter(factors.contains)
         let regular = forms.filter { !factors.contains($0) }
         var roll = roll
         if !factorForms.isEmpty {
-            let factorHit = roll % factorDenominator == 0
-            roll /= factorDenominator
+            let denominator = factorForms.allSatisfy(collected.contains)
+                ? collectedFactorDenominator : uncollectedFactorDenominator
+            let factorHit = roll % denominator == 0
+            roll /= denominator
             if factorHit { return factorForms[Int(roll % UInt64(factorForms.count))] }
         }
         let weights = regular.map { CollectionWeight.adjusted(2, isCollected: collected.contains($0)) }

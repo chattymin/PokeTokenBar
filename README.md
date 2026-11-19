@@ -93,7 +93,7 @@ Filter the Pokédex to <b>Kanto, Johto, Hoenn, Sinnoh, or Unova</b> and check ea
 <td width="45%" align="center"><img src="assets/screenshot-pokemon-forms.png" width="300" alt="Rotom form picker and form-specific individuals"><br><small>Production UI rendered locally with sample Pokémon.</small></td>
 <td width="55%" valign="middle">
 <h3>Collect more than one look</h3>
-Collect Rotom appliances, Shaymin's Land and Sky Formes, Deerling seasons, Unown letters, and other supported Gen 1–5 forms. The Pokédex shows your form count and the individuals in each form. Choose an owned form as your menu-bar and floating-pet representative. An East Sea Shellos keeps its appearance when it becomes Gastrodon, and forms stay in saves and exports. Types, stats, abilities, and moves use the default form’s data. Eggs of the 13 Gen 1–5 lines with a Gigantamax form (Charizard, Pikachu, Snorlax and more) have a 1 in 16 chance to carry the Gigantamax Factor, and the species that has the form shows its Gigantamax appearance.
+Collect Rotom appliances, Shaymin's Land and Sky Formes, Deerling seasons, Unown letters, and other supported Gen 1–5 forms. The Pokédex shows your form count and the individuals in each form. Choose an owned form as your menu-bar and floating-pet representative. An East Sea Shellos keeps its appearance when it becomes Gastrodon, and forms stay in saves and exports. Types, stats, abilities, and moves use the default form’s data. Eggs of the 13 Gen 1–5 lines with a Gigantamax form (Charizard, Pikachu, Snorlax and more) have a 1 in 8 chance to carry the Gigantamax Factor (1 in 16 once you own that Gigantamax appearance), and the species that has the form shows its Gigantamax appearance.
 </td>
 </tr>
 <tr>

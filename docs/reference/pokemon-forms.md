@@ -56,16 +56,20 @@ includes active and recorded Pokémon, regardless of shiny color. In lines where
 several species show the form, it counts as collected only once every one of
 them is owned in it. There is no duplicate streak counter or guaranteed new
 form, and the draw does not change species weights or shiny odds. Factor forms
-(Gigantamax) are the exception: they have fixed odds, described below.
+(Gigantamax) are the exception: they have their own odds, described below.
 
 ## Gigantamax
 
 The 13 Gen 1–5 species with a Gigantamax form carry it as a rare trait of the
 individual, like the Gigantamax Factor (`isFactor` on the catalog entry). The
-line's form draw uses one random value: `roll % 16 == 0` gives the factor
-(`PokemonForm.factorDenominator`, 1 in 16, whether or not it is collected);
-otherwise the remaining bits make the usual weighted draw among the other forms.
-That is rarer than a regular form and more common than a shiny (1/64).
+line's form draw uses one random value: `roll % n == 0` gives the factor, and
+otherwise `roll / n` makes the usual weighted draw among the other forms. `n`
+favors what the player does not have yet, like the collection weighting: 8
+(`uncollectedFactorDenominator`) while the line's Gigantamax form is not
+collected, 16 (`collectedFactorDenominator`) once it is. "Collected" is the same
+line notion as the regular draw (`collectedLineForms`: active or recorded, any
+shiny color). Both odds are rarer than a regular form and more common than a
+shiny (1/64).
 
 The trait is drawn for the whole line at its hatch base, the species PokéAPI
 lists without `evolves_from`: a Gigantamax Charmander and Charmeleon look as
