@@ -103,7 +103,6 @@ function matchups(p) {
   const types = p.getTypes(), all = battle.dex.types.names();
   const notNeutral = entries => Object.fromEntries(entries.filter(([, m]) => m !== 1));
   return {
-    types,
     defense: notNeutral(all.map(t => [t, multiplier(t, types)])),
     offense: Object.fromEntries(types.map(own => [own, notNeutral(all.map(t => [t, multiplier(own, [t])]))])),
   };
@@ -111,6 +110,7 @@ function matchups(p) {
 
 function mon(p, exact) {
   return {
+    types: p.getTypes(),
     ...(p.isActive && !p.fainted ? matchups(p) : {}),
     name: p.name,
     species: p.species.name,

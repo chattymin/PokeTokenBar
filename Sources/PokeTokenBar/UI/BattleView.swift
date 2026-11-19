@@ -86,6 +86,10 @@ struct BattleView: View {
                 }
                 .reservesScrollerLane()
             }
+            // Types come with the species details, which are cached after the first fetch.
+            .task {
+                for id in Set(roster.map(\.finalID)) { await store.loadPokemonDetails(speciesID: id) }
+            }
             if preparing {
                 HStack(spacing: 8) {
                     ProgressView().controlSize(.small)
@@ -117,7 +121,14 @@ struct BattleView: View {
             VStack(spacing: 2) {
                 SpriteView(speciesID: entry.finalID, size: 56, shiny: entry.isShiny, form: entry.form)
                 Text(store.dexEntryName(entry)).font(.caption).lineLimit(1)
-                Text("Lv. \(entry.profile?.level ?? 5)").font(.caption2).foregroundStyle(.secondary)
+                HStack(spacing: 3) {
+                    // PokéAPI spells types in lowercase; the icons are keyed like the simulator's.
+                    ForEach(store.pokemonDetailsByID[entry.finalID]?.types ?? [], id: \.self) {
+                        typeIcon($0.capitalized, size: 14)
+                    }
+                    Text("Lv. \(entry.profile?.level ?? 5)").font(.caption2).foregroundStyle(.secondary)
+                }
+                .frame(height: 14)
             }
             .frame(maxWidth: .infinity)
             .padding(6)
@@ -454,12 +465,12 @@ struct BattleView: View {
     }
 
     /// SF Symbols in the conventional type colours (no game artwork); the name shows on hover.
-    private func typeIcon(_ type: String) -> some View {
+    private func typeIcon(_ type: String, size: CGFloat = 20) -> some View {
         let style = Self.typeStyles[type] ?? ("questionmark", 0x888888)
         return Image(systemName: style.symbol)
-            .font(.system(size: 10, weight: .bold))
+            .font(.system(size: size / 2, weight: .bold))
             .foregroundStyle(.white)
-            .frame(width: 20, height: 20)
+            .frame(width: size, height: size)
             .background(Circle().fill(Color(red: Double(style.color >> 16 & 0xFF) / 255,
                                             green: Double(style.color >> 8 & 0xFF) / 255,
                                             blue: Double(style.color & 0xFF) / 255)))
@@ -488,7 +499,10 @@ struct BattleView: View {
                         Button {
                             session.choose("switch \(slot)")
                         } label: {
-                            Text("\(mon.name) \(mon.hp)/\(mon.maxhp)").font(.caption).lineLimit(1)
+                            HStack(spacing: 3) {
+                                ForEach(mon.types ?? [], id: \.self) { typeIcon($0, size: 14) }
+                                Text("\(mon.name) \(mon.hp)/\(mon.maxhp)").font(.caption).lineLimit(1)
+                            }
                         }
                     }
                 }

@@ -152,7 +152,7 @@ final class BattleSession {
     /// with the port only when the fixed one was taken.
     var addresses: [String] {
         guard let port else { return [] }
-        return Self.interfaceAddresses().map(\.ip).sorted()
+        return Self.localAddresses().map(\.ip).sorted()
             .map { port == Self.defaultPort ? $0 : "\($0):\(port.rawValue)" }
     }
 
@@ -160,7 +160,7 @@ final class BattleSession {
     /// ponytail: assumes a /24 around our own address, which covers WireGuard-style VPNs; read the
     /// routing table if someone needs wider subnets (Tailscale's 100.64/10 is not scannable anyway).
     static func vpnHosts() -> [String] {
-        interfaceAddresses().filter(\.pointToPoint).flatMap { own -> [String] in
+        localAddresses().filter(\.pointToPoint).flatMap { own -> [String] in
             let prefix = own.ip.split(separator: ".").dropLast().joined(separator: ".")
             return (1...254).map { "\(prefix).\($0)" }.filter { $0 != own.ip }
         }
@@ -220,8 +220,11 @@ final class BattleSession {
         connection.start(queue: .main)
     }
 
+    /// This Mac's addresses; tests and render harnesses substitute fixed ones.
+    static var localAddresses: @MainActor () -> [(ip: String, pointToPoint: Bool)] = interfaceAddresses
+
     /// Non-loopback, non-link-local IPv4 addresses of the interfaces that are up.
-    private static func interfaceAddresses() -> [(ip: String, pointToPoint: Bool)] {
+    static func interfaceAddresses() -> [(ip: String, pointToPoint: Bool)] {
         var list: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&list) == 0 else { return [] }
         defer { freeifaddrs(list) }

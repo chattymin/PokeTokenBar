@@ -6,14 +6,31 @@ import XCTest
 
 @MainActor
 final class BattleTests: XCTestCase {
-    private func member(_ dex: Int, level: Int, moves: [String]) -> BattleTeamMember {
+    override func tearDown() {
+        BattleSession.localAddresses = BattleSession.interfaceAddresses
+        super.tearDown()
+    }
+
+    /// Only VPN (point-to-point) subnets are searched, as a /24 without our own address.
+    func testVPNSearchCoversOnlyPointToPointSubnets() {
+        BattleSession.localAddresses = { [("192.168.1.20", false), ("10.8.0.2", true)] }
+        let hosts = BattleSession.vpnHosts()
+        XCTAssertEqual(hosts.count, 253)
+        XCTAssertEqual([hosts.first, hosts.last], ["10.8.0.1", "10.8.0.254"])
+        XCTAssertFalse(hosts.contains("10.8.0.2"))
+        BattleSession.localAddresses = { [("192.168.1.20", false)] }
+        XCTAssertTrue(BattleSession.vpnHosts().isEmpty)
+        XCTAssertTrue(BattleSession.interfaceAddresses().allSatisfy { !$0.ip.hasPrefix("127.") })
+    }
+
+    private func member(_ dex: Int, level: Int, moves: [String], name: String? = nil) -> BattleTeamMember {
         var profile = PokemonProfile.generate(seed: UInt64(dex))
         profile.level = level
         profile.gender = .male
         profile.moves = moves.map { PokemonKnownMove(name: $0, learnedAtLevel: 1) }
         let entry = DexEntry(baseID: dex, finalID: dex, chainOrder: [dex], rarity: .common, caughtAt: nil,
                              nature: .adamant, profile: profile)
-        return BattleTeamMember(entry: entry, name: "Mon\(dex)")
+        return BattleTeamMember(entry: entry, name: name ?? "Mon\(dex)")
     }
 
     private var ash: BattlePlayer {
@@ -96,6 +113,7 @@ final class BattleTests: XCTestCase {
                                                      "Ghost": 0.5, "Steel": 0])
         XCTAssertEqual(blastoise.defense, ["Electric": 2, "Grass": 2, "Fire": 0.5, "Water": 0.5, "Ice": 0.5, "Steel": 0.5])
         XCTAssertNil(ru.me.team.last?.defense, "only the Pokémon on the field carries matchups")
+        XCTAssertEqual(ru.me.team.last?.types, ["Electric"], "the bench shows its types on the switch buttons")
         XCTAssertEqual([4, 0.5, 0.25, 0].map(BattleView.times), ["×4", "×½", "×¼", "×0"])
         for (type, style) in BattleView.typeStyles {
             XCTAssertNotEqual(L(.ru).battleType(type), type, "\(type) has a localized name")
@@ -261,11 +279,16 @@ final class BattleTests: XCTestCase {
         defer { host.stop(); guest.stop() }
         try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "team")
 
-        var me = ash
-        me.lang = language.rawValue
+        BattleSession.localAddresses = { [("192.168.1.20", false), ("10.8.0.2", true)] }   // sample, not this Mac's
+        let me = BattlePlayer(name: "Ash", team: [member(3, level: 50, moves: ["vine-whip", "sleep-powder", "sludge-bomb", "synthesis"], name: "Venusaur"),
+                                                  member(25, level: 30, moves: ["thunder-shock"], name: "Pikachu")],
+                              lang: language.rawValue)
+        let rival = BattlePlayer(name: "Gary", team: [member(9, level: 50, moves: ["water-gun", "bite"], name: "Blastoise"),
+                                                      member(143, level: 45, moves: ["body-slam"], name: "Snorlax")])
         host.enterLobby(as: me)
-        guest.enterLobby(as: gary)
+        guest.enterLobby(as: rival)
         try await wait { host.port != nil }
+        try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "lobby-address")
         guest.challenge(endpoint: .hostPort(host: "127.0.0.1", port: try XCTUnwrap(host.port)), name: "Ash")
         try await wait { host.phase == .incoming("Gary") }
         try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "lobby")

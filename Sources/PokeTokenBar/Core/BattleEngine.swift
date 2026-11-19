@@ -62,9 +62,9 @@ struct BattleSnapshot: Codable, Sendable, Equatable {
         var status: String
         var fainted: Bool
         var active: Bool
+        var types: [String]?
         /// Only for a Pokémon on the field. Multipliers by attacking type against it (`defense`) and by
         /// defending type for each of its own types (`offense`); x1 entries are left out.
-        var types: [String]?
         var defense: [String: Double]?
         var offense: [String: [String: Double]]?
 
