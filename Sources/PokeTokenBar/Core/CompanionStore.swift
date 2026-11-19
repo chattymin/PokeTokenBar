@@ -915,7 +915,7 @@ final class CompanionStore {
     }
 
     /// Each species a graduated shiny holds, in its form.
-    private var graduatedShinySpeciesForms: Set<DexSpeciesKey> {
+    var graduatedShinySpeciesForms: Set<DexSpeciesKey> {
         Set(state.dex.filter { !$0.isReleased && $0.isShiny }.flatMap { e in
             e.chainOrder.map { DexSpeciesKey(speciesID: $0, form: e.form) }
         })
@@ -1374,7 +1374,9 @@ final class CompanionStore {
             lineForm = PokemonForm(only)
         }
         func stage(_ id: Int) -> EvoLineItem {
-            EvoLineItem(.species(id), state.ownsSpecies(id, form: lineForm) ? .done : .uncaught)
+            if state.ownsSpecies(id, form: lineForm) { return EvoLineItem(.species(id), .done) }
+            if let held = heldOwnForm(of: id) { return EvoLineItem(.species(id), .done, form: held) }
+            return EvoLineItem(.species(id), .uncaught)
         }
         var ancestors: [Int] = []
         var id = speciesID
@@ -1392,13 +1394,26 @@ final class CompanionStore {
                 continue
             }
             if next.count > 1 {
-                nodes.append(EvoLineItem(.branch(next.map {
-                    BranchEvolutionItem(speciesID: $0, isCollected: state.ownsSpecies($0, form: lineForm))
+                nodes.append(EvoLineItem(.branch(next.map { id in
+                    if state.ownsSpecies(id, form: lineForm) { return BranchEvolutionItem(speciesID: id, isCollected: true) }
+                    let held = heldOwnForm(of: id)
+                    return BranchEvolutionItem(speciesID: id, isCollected: held != nil, form: held)
                 }), .done))
             }
             break
         }
         return (nodes.count > 1 ? nodes : [], lineForm)
+    }
+
+    /// A family stage held only in forms the line's does not lead to, when its forms are its own: no stage before or
+    /// after it has forms to pass on (Alcremie's sweets after a Milcery, Vivillon's patterns). Its first form held, so
+    /// the line shows and opens it (the owner, 2026-11-19: Milcery's page showed Alcremie as a silhouette, its plain
+    /// form not caught). A form a neighbor passes on (an Alolan Vulpix's Ninetales) never stands in: nil.
+    private func heldOwnForm(of id: Int) -> PokemonForm? {
+        let forms = PokemonForm.forms(speciesID: id)
+        let neighbors = [PokemonEvolutionData.parents[id]].compactMap { $0 } + PokemonEvolutionData.children(of: id, form: nil)
+        guard !forms.isEmpty, neighbors.allSatisfy({ PokemonForm.forms(speciesID: $0).isEmpty }) else { return nil }
+        return forms.first { state.ownsSpecies(id, form: $0) }
     }
 
     /// The species of a Pokédex page's family drawn shiny when the page shows its shiny look: each one caught shiny in
@@ -3523,8 +3538,8 @@ final class CompanionStore {
     }
 
     /// Whether a dungeon's egg of the Bag can be used: as a Fossil Egg, it sends the Pokémon raised off.
-    func canUseDungeonEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.dungeons.eggs.contains { $0.id == id }
+    func canUseDungeonEgg(_ id: String, onReturn: Bool = false) -> Bool {
+        canSendOffActive(onReturn: onReturn) && !isRaisingFossilEggPokemon && state.dungeons.eggs.contains { $0.id == id }
     }
 
     /// Uses a dungeon's egg (Q20 B): the Pokémon raised is sent off for it, and it hatches its line, shiny when it was
@@ -3630,8 +3645,8 @@ final class CompanionStore {
     }
 
     /// Whether a Costume Egg of the Bag can be used: as any egg, it sends the Pokémon raised off; not while locked.
-    func canUseCostumeEgg(_ id: String) -> Bool {
-        canSendOffActive && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
+    func canUseCostumeEgg(_ id: String, onReturn: Bool = false) -> Bool {
+        canSendOffActive(onReturn: onReturn) && !isRaisingFossilEggPokemon && state.costumeEggs.contains { $0.id == id } && !isCostumeEggLocked(id)
     }
 
     /// Uses a Costume Egg: what it holds is drawn now, the Pokémon raised is sent off for it, and it hatches its
@@ -4365,7 +4380,7 @@ final class CompanionStore {
         // A Costume Egg hatches its first costumed stage, which grows only into the stages wearing its costume.
         let costumeEgg = state.eggFromCostume
         let line = costumeEgg.flatMap { Self.costumeLine(fetched, start: $0.speciesID, code: $0.code, form: $0.form,
-                                                         owned: graduatedSpeciesIDs) }
+                                                         owned: graduatedSpeciesIDs, taken: costumesTaken()) }
             ?? fetched
         let firstID = costumeEgg == nil ? line.baseID : line.tree.speciesID
         currentLine = line
@@ -4479,12 +4494,21 @@ final class CompanionStore {
     /// when the line has no such stage.
     /// `owned`: the species graduated, the only ones it may grow into (the owner, 2026-11-18); nil keeps every stage
     /// wearing the costume (a line reloaded for a Pokémon already raised).
-    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil) -> EvoLine? {
+    /// `taken`: the costumes collected; it grows only toward one still missing (the owner, 2026-11-19: an egg's Eevee
+    /// drawn for a missing Vaporeon grew into Sylveon, whose costume was held). A stage whose costume and later ones
+    /// are all held is left out; none left, it graduates as it hatched.
+    static func costumeLine(_ line: EvoLine, start: Int, code: String, form: PokemonForm?, owned: Set<Int>? = nil,
+                            taken: Set<String> = []) -> EvoLine? {
         guard let node = line.tree.node(withID: start) else { return nil }
+        func missing(_ id: Int) -> Bool {
+            CostumeCatalog.entry(code: code, speciesID: id, form: form).map { !taken.contains($0.key) } ?? false
+        }
         func prune(_ node: EvoNode) -> EvoNode {
             let worn = CostumeCatalog.entry(code: code, speciesID: node.speciesID, form: form)
                 .map { Set(CostumeCatalog.children(of: $0).map(\.speciesID).filter { owned?.contains($0) ?? true }) } ?? []
-            return EvoNode(speciesID: node.speciesID, children: node.children.filter { worn.contains($0.speciesID) }.map(prune))
+            let children = node.children.filter { worn.contains($0.speciesID) }.map(prune)
+                .filter { missing($0.speciesID) || !$0.children.isEmpty }
+            return EvoNode(speciesID: node.speciesID, children: children)
         }
         return EvoLine(baseID: line.baseID, tree: prune(node), rarity: line.rarity, names: line.names)
     }

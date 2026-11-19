@@ -846,6 +846,14 @@ read_when:
   (`CostumeTests.testACostumeIsCollectedOnceGraduatedNeverSentOff`). Sweep: the medals and the collection screen read
   the same set; the Pokédex's achievements already count graduated records only.
 
+- **A rule checked where the content is drawn must hold where it grows.** The 18/11 Costume Egg drew a Pokémon held
+  with a costume missing in its family, but the hatch's line kept every evolution held, whatever its costume: an
+  Eevee drawn for a missing Vaporeon grew into Sylveon, whose costume the owner had (2026-11-19). **Why it was
+  missed:** the tests checked the draw against "missing" and the line against "held" separately; none held an
+  evolution whose costume was collected. `CompanionStore.costumeLine(taken:)` now keeps only the branches leading to
+  a costume missing (`CostumeTests.testItGrowsOnlyTowardACostumeMissing`, fault: 3 failures). Sweep: the other
+  eggs' lines are not filtered by a collection; the relaunch reload keeps the path planned at the hatch.
+
 - **A choice simulated on other conditions than the departure's picks for those conditions.** "Compose for me" played
   its candidate teams without the Bag's berries and Revives, which the departure takes along: the owner's day dungeon
   of 2026-11-13 kept a team winning 88% of the runs with his six Sitrus Berries, where the other candidate won 96%

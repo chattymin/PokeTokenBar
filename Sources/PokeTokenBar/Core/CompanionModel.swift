@@ -1209,10 +1209,14 @@ enum EvoLineItemState: Equatable, Sendable {
 struct EvoLineItem: Equatable, Sendable {
     let content: EvoLineItemContent
     let state: EvoLineItemState
+    /// The form this stage shows and opens, when it is not the line's: one held of a species whose forms are its own
+    /// (`CompanionStore.dexFamily`). Nil: the line's.
+    let form: PokemonForm?
 
-    init(_ content: EvoLineItemContent, _ state: EvoLineItemState) {
+    init(_ content: EvoLineItemContent, _ state: EvoLineItemState, form: PokemonForm? = nil) {
         self.content = content
         self.state = state
+        self.form = form
     }
 }
 
