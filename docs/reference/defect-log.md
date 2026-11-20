@@ -35,6 +35,20 @@ read_when:
   bounded backoff, cancellation during sleep/shiny download, unsupported species, and warm form
   caches. These tests are headless; they do not establish ongoing on-screen SwiftUI rendering.
 
+- **Identity assertions on the shared image cache need an empty cache.** `SpriteLoader.imageCache` is
+  one process-wide `NSCache` (`countLimit = 64`), and `NSCache` evicts eagerly near its limit, even the
+  entry it just stored. `SpriteImageCacheTests`, `UnownSpriteCacheTests` and `UnownSpriteViewTests`
+  assert `===` between consecutive loads. They passed only because earlier suites happened to leave the
+  cache below the limit. Floating-pet controller tests that render sprites made five of them fail in
+  the full run, while each class passed alone or next to the new tests. Storing 12 dummy entries
+  first, without the new tests, reproduced the failures. **Why it was missed:** the order dependence
+  shows only in a full run, and no test owned the cache's starting state. Those classes now clear the
+  cache in `setUp`. A new test that asserts cache identity must do the same.
+  The same applies to tests that *seed* stand-in images into that cache: `DexColorRenderingTests` seeded
+  red/blue sprites and failed on CI (PR #494) once the cache was full, because the seeds were evicted and
+  the grid loaded the real sprite. It now seeds into an emptied cache and polls for the colours instead
+  of a fixed 100 ms wait.
+
 - **움직이는 상세 화면은 첫 렌더부터 캐시된 GIF 프레임을 사용한다.** 정적 PNG는 96px 투명
   캔버스이고 GIF는 본체에 맞춘 작은 캔버스라, PNG를 먼저 보여준 뒤 같은 슬롯에 GIF를 맞추면
   정지한 작은 포켓몬이 뒤늦게 커진다. 디코드 프레임을 캐시해 시드와 재생에서 공유하고 GIF 요청을
@@ -686,6 +700,19 @@ read_when:
   안에 보관한다. 객체 동일성 검증과 동시 요청은 유지하며, Sendable 우회 선언을 추가하지 않는다.
   회귀 가드: `SpriteImageCacheTests` 의 두 동시 로드 테스트와 `macos-15` CI의 테스트 컴파일.
   (CI 실패: 2026-09-10.)
+- **CGFloat 로 추론된 각도에 `cos`/`sin` 을 부르지 마라 — Swift 6.1(CI)은 `_math`/`CoreGraphics` 오버로드가
+  모호하다고 거부한다.** `CelebrationStage` 의 균열 빛줄기가 `let angle = atan2(start.y - …, start.x - …)`
+  (CGFloat) 뒤에 `cos(angle)` 을 불러, 로컬 Swift 6.3.3 에서는 빌드·테스트가 통과했지만 CI(Xcode 16.4/Swift 6.1)
+  에서 `ambiguous use of 'cos'` 로 빌드가 실패했다(PR #494). **왜 못 걸렀나:** 위 항목과 같다 — 로컬 최신
+  도구체인의 전체 통과는 CI 컴파일 호환성의 증거가 아니다. → 각도는 `Double` 로 명시한다
+  (`let angle: Double = atan2(Double(dy), Double(dx))`); 같은 파일의 다른 각도는 이미 `Double(i) * …` 라 스윕 완료.
+  회귀 가드: `macos-15` CI 의 `swift build`.
+- **호스트의 접근성·전원 설정을 읽는 뷰는 테스트에서 주입한다 — CI 러너는 Reduce Motion 이 켜져 있을 수 있다.**
+  `PopoverView` 가 만든 `CompanionHeader` 가 `MotionSettings.system` 을 읽어, 로컬에서는 전체 시퀀스(파란 빛)를
+  그렸지만 CI 에서는 짧은 크로스페이드로 바뀌어 `testPopoverDrawsTheStageAboveItsScrollView` 가 파란 픽셀 0 으로
+  실패했다(PR #494). **왜 못 걸렀나:** 로컬 머신의 설정이 우연히 기대값과 같았다 — 테스트가 환경을 고정하지 않았다.
+  재현: 같은 테스트에 `MotionSettings(reduceMotion: true)` 를 주입하면 CI 와 같은 줄·같은 시간으로 실패.
+  → `PopoverView(motion:)` 로 주입하고, 실제 팝오버를 띄우는 테스트는 모두 `MotionSettings()` 를 넘긴다.
 - **SwiftUI `View`/`App` 경계는 `@MainActor` 를 명시한다.** Swift 6.3 은 `body` 밖의 `@ViewBuilder` helper·
   동기 클로저를 nonisolated 로 검사해, `@MainActor` `@Observable` store 접근이 수십 개의 오류로 연쇄된다.
   개별 프로퍼티에 `MainActor.assumeIsolated` 를 흩뿌리지 말고 UI 타입 선언 한 곳에 격리를 둔다.
@@ -869,6 +896,23 @@ read_when:
   hatched-pet Open, while context-menu Open always opens. Keep the heart/particles attached to
   the sprite's bob modifier. `FloatingPetAgentTests` checks combined speech/headroom/event gates;
   `FloatingPetAgentWiringTests` invokes the production hosting callbacks for eggs and hatched pets.
+
+- **"On screen" is not "seen", and "not playing" is not "no spoiler" (floating-pet celebrations).**
+  The Task 6 review found two gaps before merge.
+  1. `NSWindow.isVisible` stays true behind a lock screen, a screensaver or another user's session, so a
+     sequence could play to its end and mark its item seen while nobody watched. Liveness now also needs
+     an interactive session (`FloatingPetController.sessionInteractive`). The lock, screensaver and
+     session notifications only trigger a re-check: every `sync()` reads the real state
+     (`CGSessionCopyCurrentDictionary`, running `ScreenSaverEngine`), so a missed "un-" notification
+     cannot keep the pet down. This is the same rule as the polling probe in §에너지.
+  2. A visible pet that does not own the queue (popover open, or the instant before `play`) drew the
+     store's already-evolved species. Until the first pending hatch/evolve is finished, every display
+     path (sprite, tooltip, wobble, click) reads its source (`displayedSubject(…queue:player:)`).
+
+  **Why it was missed:** the tests covered the pet as owner and the hide paths, but never a pet that
+  is visible yet not watched, or visible yet not the owner. Guards: `testLockedSessionStops…`,
+  `testPendingItemShowsItsSourceUntilFinished`, and `testFinishAfterTheHandoffDoesNotMarkItSeen` for the
+  `onFinish` owner check. Each was confirmed to fail when its fix was removed.
 
 - **초기 설정 이동은 애니메이션 완료에 의존하지 않는다.** 세션 키 만료·등록 안내에서
   `startExpanded`로 연 고급 섹션의 animated `scrollTo`가 비활성·non-key native 호스트에서
@@ -1121,6 +1165,123 @@ read_when:
   밖·히트 영역 안 지점에 합성 마우스 이벤트를 보내 액션 발화를 확인한다. 스윕: 같은 형태의 나머지
   (`questionmark.circle` 키체인 도움말, 검색 지우기 `xmark.circle.fill`)는 채워진 원형 글리프라 라벨
   프레임이 이미 아이콘 전체라 제외.
+
+- **Chain spoilers — per-item presentation vs queue.** `CompanionStore` switches species before any
+  hatch/evolve sequence plays, so with a chain queued (hatch then a carry-over evolve, two rare candies
+  A → B → C, Reduce Motion revealing at t = 0) its live state is already the *end* of the chain. The popover
+  header decided what to show from the playing item alone (`source` before its reveal, else the live state),
+  so at the first reveal it showed C's name, line and level-up text ("Evolved into C!"), and between two
+  items the resting sprite flashed C. The floating pet had its own, different per-item model. Notices
+  without a sequence had the same blind spot in time: a graduation or Ditto reveal notification went out
+  at once and overtook the evolutions still held for playback (`latestEvent` ended on an evolution, the
+  "graduated" line showed before them).
+  **5 whys — why the tests did not catch it:** every presentation test built a *single* `PendingCelebration`
+  and asked about that item, where "after the reveal → live state" is correct by construction (the live
+  state *is* that item's target). No test had a store whose live state was past the playing item, which
+  is the only condition under which the rule is wrong. The notification tests likewise checked
+  `latestEvent` (the last value only), never the order, so an event sent first and overwritten looked
+  fine. Two surfaces with two models also meant each review only saw one half.
+  **Fix:** one pure `CelebrationPresentation.shown(queue:playing:text:surface:)` in Core, used by the
+  header (name, line via `lineNodes(presenting:)`, sprite, VoiceOver, level-up status) and the pet: the
+  playing item's source until its reveal, its result while a later item playable on that surface waits,
+  the next item's source when nothing plays. Notices go through `CelebrationQueue.hold(_:)`: behind the
+  last item still holding a notification, released in arrival order (finish, owner loss, drop); a new
+  companion drops the previous one's items (`generation`) after announcing their held notifications.
+  **Rule:** a presentation or notification test for a queue needs a *chain* — at least two items, with the
+  store already at the end — and an order check (`companionEventObserver`), not just the last value.
+  **Regression guards:** `CelebrationPresentationTests` (hatch → evolve at `hatchDone`, candy chain at
+  `evolveDone`, reduced motion, between items, against a real store queue),
+  `CompanionHeaderCelebrationTests.testChainedItemsNeverShowTheLiveEndOfTheChain` (rendered: name, sprite,
+  status line), `CelebrationQueueTests.testGraduationWaitsBehindTheQueuedEvolutions`,
+  `testInstantGraduate…` (order, ends on the graduation), `testNewHatchDropsTheGraduatedMonsCatchUp`,
+  `PetEventLineTests.testDittoRevealDuringAHeldHatchWaitsBehindIt`. Each fails against the per-item model
+  or with the hold/drop removed (checked by injection).
+
+- **A sequence seen on one surface replayed on the other — single-owner hand-off; seen = reveal.** Reported
+  on the installed branch build: popover open, floating pet shown, Lixy evolved and played in the popover
+  through « Félicitations… »; closing the popover replayed it from the start on the pet. **Trigger:** a close
+  (or tab switch) during the post-reveal caption hold (8–12 s) → the popover's playback is cancelled → the
+  item stays unseen, because "seen" was only the end of the sequence (`total`) → the other surface, now the
+  owner, replays it from 0. A closed popover's hosting tree also goes at once, so its own stop may never be
+  reported at all.
+  **Why the tests did not catch it:** the popover tests mounted the header alone, the pet tests flipped
+  `popoverOpen` without a popover player, and every "played to the end" test let the popover reach `total`.
+  No test closed a surface between the reveal and the end, and none had both surfaces live around one item.
+  **Rule (spec 5bis.2bis, user decisions):** *seen = reveal* (`CelebrationTimeline.seenTime`: the done caption,
+  8.0 s evolve / 6.4 s hatch; the end of the 1.2 s cross-fade when reduced). A sequence that keeps playing
+  still runs to `total` and holds the caption. A surface that stops after the reveal finishes the item
+  (once) unless another live surface still plays it; before the reveal it stays unseen. Every live surface
+  plays the head at once from one shared start and version (`CompanionStore.celebrationPlayback`); the store
+  itself ends a surface's part when it stops being live, a rejected end (surface no longer live) is a stop,
+  and a start already past its total is never joined — a stale shared start once finished an unseen item
+  at once on the next playback.
+  **Guards:** `FloatingPetCelebrationTests.testClosingThePopoverDuringTheCaptionHoldKeepsThePetPlaying` (fails
+  under the single-owner rule), `testPopoverPlayedToTheEndIsNeverReplayedOnThePet`,
+  `testHidingThePetAfterTheRevealFinishesTheItem`, `testFinishAfterThePetStoppedBeingLiveDoesNotMarkItSeen`,
+  `CompanionHeaderCelebrationTests.testClosingThePopoverAfterTheRevealCountsTheItemAsSeen` (incl. just before
+  the reveal and reduced motion), `CelebrationQueueTests.testAStopAfterTheRevealFinishesTheItemOnce`,
+  `testAnOverStartIsNeverJoined`, `testAnEndOffALiveSurfaceIsAStop`, `testSharedPlayback…`.
+
+- **Window frame and SwiftUI content driven by two sources of truth / two update cycles (floating-pet
+  sequence start and end).** Reported on the floating pet: a Pichu evolution jumped, changed size and vanished
+  for an instant as it started and as it ended (the popover was fine). **Symptom → cause:** the panel grows by
+  `CelebrationStage.effectsMargin` on every side while a sequence plays; AppKit applied that frame at once in
+  `sync()`, but the view picked the stage or the resting sprite from `player.item`, on SwiftUI's own cycle.
+  *End:* the player's task cleared `item`, SwiftUI drew the bottom-aligned resting sprite in the still-grown
+  panel (one margin too low) until the observation hop's `sync()` shrank it. *Start and end:* the swap shared
+  the `.animation(…, value: bubble)` transaction (the caption appears/disappears in the same update), so it
+  cross-faded: the outgoing sprite stayed at its old SwiftUI position, pinned to the resized panel's top-left
+  corner, and the celebration bubble faded out over the pet of the already-shrunk panel.
+  **Why the tests missed it:** every panel test (`testPlaybackGrowsThePanelAroundTheGroundedPet`, drag, run)
+  waited with `waitUntil` for the frame to settle, so they only saw states *after* the hop and after the
+  animation; none looked inside the step where the frame changes, none rendered the hosted view, and the
+  player's own end was only tested for its store effects (seen, notification), never for what the pet drew.
+  `animated` also followed the host's Low Power, so the cross-fade was not even pinned in tests.
+  **Fix:** one source of truth, applied in one step: `FloatingPetLayoutModel.celebrating`, written only by
+  `FloatingPetController.applyFrame` together with `setFrame`, followed by `layoutSubtreeIfNeeded` /
+  `displayIfNeeded`; the view reads only that model. The player's `onFinish` calls `sync()` directly instead of
+  waiting for the hop. The stage ↔ resting swap is `.transition(.identity)`, and the speech bubble's removal is
+  instant (same reason as the hearts: the panel drops its headroom at the same moment). `motionOverride` now
+  pins the hosted view's animations too, so tests do not depend on the host's Low Power.
+  **Rule:** when an AppKit window frame depends on view state, the frame and the layout must switch from one
+  value, in one call; never let the content derive the same decision from a source that changes on another
+  clock (a player's task, an observation hop), and never animate a swap whose container resizes instantly.
+  **Guard:** `FloatingPetCelebrationTests.testFrameAndContentSwitchTogetherAtTheStartAndTheEnd` renders the
+  hosted view in the same step as the start and as the player's end (before the hop), then mid-animation, and
+  checks the sprite's on-screen place, size and unobstructed pixels. Fails on the original code, with the
+  `onFinish` reframe removed, with the swap or the bubble removal animated again (each checked by injection).
+  **Follow-up — the bubble is the same class.** On CI (macos-15 runner, Xcode 16.4 / Swift 6.1, 1x, slower,
+  Reduce Motion on) that test still failed at the end; locally (macOS 26, fast machine) it passed. CI capture
+  `pet-3-end.png`: the panel had shrunk and the resting disc stood in place, but the start caption ("Huh? P1 is
+  evolving!") was drawn over the pet: 4915 red pixels against 7248 at rest, 2346 opaque non-sprite pixels, and
+  still 2285 in `pet-4-after.png` 100 ms later. **Cause:** the panel's height counts the speech bubble and the
+  hearts (`showingBubble`, controller), but the view resolved its bubble itself, from the player's caption, the
+  store's alert and the agent model, and animated it with a container `.animation(…, value: bubble)`. At the
+  end the bubble's removal rode that animated transaction; the runner's SwiftUI (macOS 15) kept the identity-removed
+  view drawn for the animation's length (the captures above), macOS 26 drops it at once — so the local run passed whatever the machine's
+  speed. Reproduced locally by emulating the older behaviour at HEAD (removal `.opacity` instead of
+  `.identity`): the same capture as CI (19700/28992 red pixels). The speed-dependent part is the limit alert:
+  the store raises it on its own clock, the view read it at once, and the panel grew only at the observation
+  hop, so the longer the hop lags (slow runner), the longer the bubble is drawn over the pet in the
+  resting-size panel. (The agent and hearts paths were already same-step: their writers call `sync()` at once.)
+  **Why the first fix missed it:** it moved only the stage decision into the model; its guard measured the
+  sprite only, and on the dev OS the lingering removal never shows. **Fix:** `FloatingPetLayoutModel` also
+  carries the resolved `bubble` and `hearts`, written by `updateLayout()` with the frame (`applyFrame`, and the
+  run's animated frames); the view reads the bubble only from the model. Its pop-in animation is attached to
+  the insertion transition (`FloatingPetView.popIn`), never to the transaction: now that the bubble changes in
+  the frame step, a container animation (the interrupted first take, gated on `bubble != nil`) also animated
+  the pet's place in the resized panel — the sprite was drawn ~19 pt too high and sprang down when an alert
+  appeared. **Guards:** `testFrameAndContentSwitchTogetherAtTheStartAndTheEnd` asserts
+  `contentShowsBubble == ` the frame's headroom at the start and right after the player's end, and that the
+  captures of that same step (and 100 ms later) draw opaque non-sprite pixels only with headroom;
+  `testLimitAlertBubbleAndHeadroomSwitchTogether` checks the same in the step where the store raises an alert,
+  then that the bubble is drawn above the pet without moving it. Red: HEAD (alert: view reads the store),
+  HEAD + `.opacity` removal (end capture, the CI picture), bubble not cleared in `updateLayout`, container
+  animation restored (alert: pet slides). Green with the fix even with the `.opacity` removal injected, so it
+  does not rely on the OS dropping identity-removed views. **Left as is:** `store.floatingPetSize` (settings
+  slider) still sizes the sprite directly while the frame follows at the hop — a transient while dragging.
+  The popover header was swept: it has no window frame, and one `player.item` read drives both the hidden
+  resting tile and the stage anchor in the same pass; a same-step render showed no blank or moved frame.
 
 ## 에너지 (상시 표시 애니메이션)
 
