@@ -30,6 +30,9 @@ final class DexColorRenderingTests: XCTestCase {
                 SpriteStore.cacheKey(speciesID: 606, animated: false, shiny: $0) + ".png").path as NSString
         }
         let previous = keys.map { SpriteLoader.imageCache.object(forKey: $0) }
+        // Seed into an empty cache: earlier suites can fill the shared NSCache (limit 64), and NSCache
+        // then evicts arbitrary entries, including these seeds, so the grid fetched the real sprite.
+        SpriteLoader.imageCache.removeAllObjects()
         for (key, color) in zip(keys, [NSColor.red, NSColor.blue]) {
             SpriteLoader.imageCache.setObject(solidImage(color), forKey: key)
         }
@@ -66,6 +69,21 @@ final class DexColorRenderingTests: XCTestCase {
         ]
         try JSONEncoder().encode(state).write(to: file)
         return (CompanionStore(provider: ColorRenderingProvider(), fileURL: file), file)
+    }
+
+    /// Renders `host` until `ready` accepts the capture or 5 s pass. Grid and log sprites load in their own
+    /// SwiftUI `.task`, so a fixed 100 ms wait sampled unloaded cells on the slower macOS 15 CI runner;
+    /// a sprite that never loads (or stays stale) still fails the caller's assertions after the deadline.
+    private func captureWhenReady(_ host: NSView, _ ready: (NSBitmapImageRep) -> Bool) throws -> NSBitmapImageRep {
+        let deadline = Date().addingTimeInterval(5)
+        var bitmap: NSBitmapImageRep
+        repeat {
+            RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.05))
+            host.layoutSubtreeIfNeeded()
+            bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+            host.cacheDisplay(in: host.bounds, to: bitmap)
+        } while !ready(bitmap) && Date() < deadline
+        return bitmap
     }
 
     private func colorRows(_ captured: NSBitmapImageRep, shiny: Bool) -> [Int] {
@@ -196,10 +214,7 @@ final class DexColorRenderingTests: XCTestCase {
                     window.orderFront(nil)
                     defer { window.close() }
                     host.layoutSubtreeIfNeeded()
-                    RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-                    host.layoutSubtreeIfNeeded()
-                    let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                    host.cacheDisplay(in: host.bounds, to: bitmap)
+                    let bitmap = try captureWhenReady(host) { colorRows($0, shiny: false).count > 20 && colorRows($0, shiny: true).count > 20 }
                     try XCTUnwrap(bitmap.representation(using: .png, properties: [:])).write(to:
                         URL(fileURLWithPath: "/private/tmp/dex-color-log-shiny-last-\(shinyLast).png"))
                     let normalRows = colorRows(bitmap, shiny: false)
@@ -241,10 +256,7 @@ final class DexColorRenderingTests: XCTestCase {
                 window.orderFront(nil)
                 defer { window.close() }
                 host.layoutSubtreeIfNeeded()
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-                host.layoutSubtreeIfNeeded()
-                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                host.cacheDisplay(in: host.bounds, to: bitmap)
+                let bitmap = try captureWhenReady(host) { colorRows($0, shiny: shiny).count > 20 && colorRows($0, shiny: !shiny).isEmpty }
                 let normalRows = colorRows(bitmap, shiny: false)
                 let shinyRows = colorRows(bitmap, shiny: true)
                 if shiny {

@@ -45,6 +45,12 @@ private struct UnownSpriteTogglePreview: View {
 
 @MainActor
 final class UnownSpriteViewTests: XCTestCase {
+    /// Identity checks need room in the process-wide image cache: `NSCache` evicts eagerly near its
+    /// `countLimit`, so images earlier suites loaded could evict an entry these tests just added.
+    override func setUp() async throws {
+        SpriteLoader.imageCache.removeAllObjects()
+    }
+
     func testStaticShinyToggleLoadsShinyWhenOnlyNormalImageIsCached() async throws {
         try await assertShinyLoaded(startingShiny: false)
     }
