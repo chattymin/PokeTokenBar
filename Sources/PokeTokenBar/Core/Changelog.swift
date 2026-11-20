@@ -67,6 +67,14 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-20", entries: [
+            .improved("2026-11-20-capsule-nature", { $0.t("왕관 고르기 목록에 포켓몬마다 IV 합계 아래 성격이 나오고, 고른 포켓몬에는 성격의 효과(+공격 −스피드 등)도 나와요.",
+                                                          "The Bottle Caps' list shows each Pokémon's nature under its IV total, and the Pokémon picked shows the nature's effect (+Atk −Spe and so on).",
+                                                          "王冠を使うポケモンの一覧で、IV合計の下に性格が出て、選んだポケモンには性格の効果（+攻撃 −素早さなど）も出ます。",
+                                                          "La lista de las Chapas muestra la naturaleza de cada Pokémon bajo su total de IV, y el Pokémon elegido muestra su efecto (+Atq −Vel, etc.).",
+                                                          "La liste des Capsules montre la nature de chaque Pokémon sous son total d'IV, et le Pokémon choisi montre l'effet de sa nature (+Atq −Vit, etc.).",
+                                                          "A lista das Tampinhas mostra a natureza de cada Pokémon sob o total de IV, e o Pokémon escolhido mostra o efeito dela (+Atq −Vel etc.).",
+                                                          "Die Liste der Kronkorken zeigt unter der IV-Summe jedes Pokémon sein Wesen, und das gewählte Pokémon zeigt die Wirkung (+Ang −Init usw.).",
+                                                          "В списке крышек у каждого покемона под суммой IV видна натура, а у выбранного ещё и её эффект (+Атк −Скор и т. д.).") }),
             .improved("2026-11-20-team-region-filter", { $0.t("한 지방만 허용하는 던전의 팀 화면에 지방 필터가 생겼어요. 포켓몬을 고르면 그 지방으로 맞춰지고, 다른 지방 포켓몬은 고를 수 없게 표시돼요.",
                                                               "A one-region dungeon's team screen has a region filter: picking a Pokémon sets it to that Pokémon's region, and the other regions' are marked as not allowed.",
                                                               "ひとつの地方だけのダンジョンのチーム画面に地方フィルターができました。ポケモンを選ぶとその地方に合わせ、ほかの地方のポケモンは選べないと表示されます。",
