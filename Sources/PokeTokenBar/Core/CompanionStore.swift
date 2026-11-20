@@ -24,13 +24,160 @@ final class CompanionStore {
     private(set) var justGraduated: String?
     private var eventUntil: Date?
 
-    /// 부화/진화 연출 트리거 — seq 증가로 UI 가 감지, 팝오버가 닫혀 있었어도 다음 오픈에 1회 재생.
-    enum Celebration: Equatable { case hatch(shiny: Bool), evolve, dittoReveal(shiny: Bool) }
-    private(set) var celebration: Celebration?
-    private(set) var celebrationSeq = 0
-    private func fireCelebration(_ c: Celebration) { celebration = c; celebrationSeq += 1 }
-    /// 연출 재생 후 UI 가 호출(1회성 보장).
-    func consumeCelebration() { celebration = nil }
+    /// Pending hatch / evolve / Ditto-reveal sequences. They outlive a closed popover and play on the next surface.
+    private(set) var celebrations = CelebrationQueue()
+    /// Set by the surfaces: the popover is open and someone can see it, the floating pet is on screen. Every
+    /// live surface plays the queue head at the same time; the first to play it to the end marks it seen.
+    var popoverOpen = false { didSet { surfaceLivenessChanged(.popover, live: popoverOpen) } }
+    var floatingPetLive = false { didSet { surfaceLivenessChanged(.floatingPet, live: floatingPetLive) } }
+
+    /// A surface that stops being live stops playing too: it leaves the shared playback here, in the store,
+    /// even when its view is torn down before it can say so (a closed popover's hosting tree goes at once).
+    private func surfaceLivenessChanged(_ surface: CelebrationSurface, live: Bool) {
+        if !live, let playback = celebrationPlayback, playback.surfaces.contains(surface) {
+            celebrationStopped(id: playback.id, on: surface)
+        }
+        flushDeferredIfNobodyLive()
+    }
+    var liveSurfaces: Set<CelebrationSurface> {
+        CelebrationQueue.liveSurfaces(popoverOpen: popoverOpen, floatingPetLive: floatingPetLive)
+    }
+    func isLive(_ surface: CelebrationSurface) -> Bool { liveSurfaces.contains(surface) }
+
+    /// The head being played: since when, in which version, whether its reveal was reached, and on which
+    /// surfaces. A surface that starts an item another one already plays joins it (same start, same timeline:
+    /// both show the same phase); nil once no surface plays it, so a later replay starts from 0.
+    private(set) var celebrationPlayback: CelebrationPlayback?
+
+    struct CelebrationPlayback: Equatable {
+        let id: Int
+        var startedAt: Date
+        /// The short cross-fade version (Reduce Motion / Low Power when it started); a joiner adopts it.
+        let reduced: Bool
+        /// A surface reached the reveal (`CelebrationTimeline.seenTime`): the item has been shown.
+        var revealed = false
+        var surfaces: Set<CelebrationSurface>
+    }
+
+    /// A surface starts playing `id` at `now`, in the `reduced` version unless it joins a playback already
+    /// running; returns the start and version to play. A playback whose start is over (`now` past its total)
+    /// is never joined: the item starts fresh, so it can never finish at once without being shown.
+    func beginCelebration(id: Int, on surface: CelebrationSurface, now: Date,
+                          reduced: Bool) -> (startedAt: Date, reduced: Bool) {
+        if var playback = celebrationPlayback, playback.id == id,
+           now.timeIntervalSince(playback.startedAt) < celebrationTotal(id: id, reduced: playback.reduced) {
+            playback.surfaces.insert(surface)
+            celebrationPlayback = playback
+            return (playback.startedAt, playback.reduced)
+        }
+        celebrationPlayback = CelebrationPlayback(id: id, startedAt: now, reduced: reduced, surfaces: [surface])
+        return (now, reduced)
+    }
+
+    private func celebrationTotal(id: Int, reduced: Bool) -> TimeInterval {
+        guard let item = celebrations.items.first(where: { $0.id == id }),
+              let timeline = CelebrationTimeline(item.kind, reduced: reduced) else { return 0 }
+        return timeline.total
+    }
+
+    /// A surface's player reached the reveal of `id`.
+    func celebrationRevealed(id: Int) {
+        guard var playback = celebrationPlayback, playback.id == id, !playback.revealed else { return }
+        playback.revealed = true
+        celebrationPlayback = playback
+    }
+
+    /// A surface stopped playing `id` before its end (cancel, close, tab switch, hide, lock, sleep). Another
+    /// live surface still playing it keeps going and finishes it at its end. Otherwise, past the reveal the item
+    /// has been shown: it is finished (seen, its notification released once); before it, it stays unseen.
+    func celebrationStopped(id: Int, on surface: CelebrationSurface) {
+        guard var playback = celebrationPlayback, playback.id == id else { return }
+        playback.surfaces.remove(surface)
+        if playback.surfaces.contains(where: isLive) {
+            celebrationPlayback = playback
+            return
+        }
+        celebrationPlayback = nil
+        if playback.revealed { finishCelebration(id: id) }
+    }
+
+    /// A surface's player reached the end of `id`: finished if that surface is still live, else a stop.
+    func celebrationPlayerEnded(id: Int, on surface: CelebrationSurface) {
+        if isLive(surface) {
+            finishCelebration(id: id)
+        } else {
+            celebrationStopped(id: id, on: surface)
+        }
+    }
+
+    /// A click skipped `id` to its reveal on one surface: the others follow from the same new start.
+    func skipCelebration(id: Int, startedAt: Date) {
+        guard var playback = celebrationPlayback, playback.id == id else { return }
+        playback.startedAt = startedAt
+        celebrationPlayback = playback
+    }
+
+    /// Queues a sequence. With a live surface its notification waits for `finishCelebration`; otherwise it goes out now.
+    private func fireCelebration(_ kind: CelebrationKind, title: String, body: String, levelUpSeconds: TimeInterval) {
+        let event = DeferredCompanionEvent(title: title, body: body, levelUpSeconds: levelUpSeconds)
+        let item = PendingCelebration(id: 0, kind: kind, deferred: nil)
+        if liveSurfaces.contains(where: { item.isPlayable(on: $0) }) {
+            celebrations.enqueue(kind, deferred: event, generation: activeGeneration)
+        } else {
+            send(event)
+            celebrations.enqueue(kind, deferred: nil, generation: activeGeneration)
+        }
+    }
+
+    /// A notice without a sequence (graduation, Ditto reveal): it goes out now unless a queued sequence still
+    /// holds its notification, in which case it waits behind it (a notice never overtakes an earlier event).
+    private func announceInOrder(_ event: DeferredCompanionEvent) {
+        if !celebrations.hold(event) { send(event) }
+    }
+
+    private func send(_ event: DeferredCompanionEvent) {
+        if let name = event.graduated {
+            justGraduated = name
+        } else {
+            displayState = .levelUp
+        }
+        eventUntil = clock().addingTimeInterval(event.levelUpSeconds)
+        notifyCompanionEvent(event.title, event.body)
+    }
+
+    /// Notification only, for held events whose sequence will never play (the companion was replaced, the
+    /// app quits): no level-up window or graduation line for a companion that is no longer shown.
+    private func announceDropped(_ events: [DeferredCompanionEvent]) {
+        for event in events { notifyCompanionEvent(event.title, event.body) }
+    }
+
+    /// Called by a live surface when it has played a sequence to its end: drops it and releases its notification,
+    /// then the notices that waited behind it. Seen once: a second surface finishing the same id does nothing.
+    func finishCelebration(id: Int) {
+        if celebrationPlayback?.id == id { celebrationPlayback = nil }
+        for event in celebrations.remove(id: id) { send(event) }
+    }
+
+    private func flushDeferredIfNobodyLive() {
+        guard liveSurfaces.isEmpty else { return }
+        for event in celebrations.takeDeferredEvents() { send(event) }
+    }
+
+    /// The app is quitting: every held notification goes out now, in order (the queue is not persisted).
+    func flushHeldNotifications() {
+        announceDropped(celebrations.takeDeferredEvents())
+    }
+
+    /// A new companion (hatch, released for a new egg, imported save) replaces the previous one: its sequences
+    /// no longer apply. `keepingPlaying`: the one on screen right now finishes first (its notification then
+    /// goes out at its end); an imported save drops everything.
+    private func dropEarlierCompanionsCelebrations(keepingPlaying: Bool = true) {
+        let playing = keepingPlaying ? celebrationPlayback?.id : nil
+        announceDropped(celebrations.removeGenerations(before: activeGeneration, keeping: playing))
+        if let current = celebrationPlayback, !celebrations.items.contains(where: { $0.id == current.id }) {
+            celebrationPlayback = nil
+        }
+    }
 
     /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
     private(set) var candyFeedbackSeq = 0
@@ -255,8 +402,11 @@ final class CompanionStore {
     /// 알이 부화 준비(100%)가 되었으나 PokéAPI 요청/후보 선택 실패로 다음 갱신을 기다리는 상태.
     private(set) var isHatchRetryDelayed = false
 
+    /// The egg's name (not localized, like the product name).
+    nonisolated static let eggName = "Token Egg"
+
     var displayName: String {
-        guard let a = state.active, let line = currentLine else { return "Token Egg" }
+        guard let a = state.active, let line = currentLine else { return Self.eggName }
         return formDisplayName(line.localizedName(a.currentID, state.language),
                                speciesID: a.currentID, form: currentForm)
     }
@@ -296,22 +446,45 @@ final class CompanionStore {
     /// 분기 후보는 부화 시 계획됐더라도 실제 진화 전까지 하나의 미지 항목으로 숨긴다.
     var lineNodes: [EvoLineItem] {
         guard let a = state.active, let line = currentLine else { return [] }
-        var out = Self.realizedLineItems(pathIDs: a.pathIDs, stageIndex: a.stageIndex)
-        if let current = line.tree.node(withID: a.currentID) {
-            var node = current
-            var guaranteedPrefix: [EvoNode] = []
-            while node.children.count == 1, let child = node.children.first {
-                guaranteedPrefix.append(child)
-                node = child
-            }
+        return Self.lineItems(tree: line.tree, pathIDs: a.pathIDs, stageIndex: a.stageIndex, currentID: a.currentID)
+    }
 
-            if node.children.count > 1 {
-                out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
-                out.append(EvoLineItem(.mystery, .future))
-            } else {
-                out += guaranteedPrefix.map { EvoLineItem(.species($0.speciesID), .future) }
-            }
+    /// The evolution line as it looked before evolving from `sourceID`, for the evolve sequence: the
+    /// source is current again and the line after it is unrealized (a branch shows as mystery again).
+    /// Falls back to the live line when the source is not on the realized path.
+    func lineNodes(beforeEvolvingFrom sourceID: Int?) -> [EvoLineItem] {
+        guard let a = state.active, let line = currentLine else { return [] }
+        return Self.preEvolveLineItems(tree: line.tree, pathIDs: a.pathIDs, stageIndex: a.stageIndex,
+                                       currentID: a.currentID, sourceID: sourceID)
+    }
+
+    /// The line while `speciesID` is shown in place of the live companion (`CelebrationPresentation`): as it
+    /// was before evolving from it. Empty when it is not on the current companion's path (the egg, a Ditto's
+    /// disguise after the reveal, a graduated companion's catch-up): no line rather than one that spoils.
+    func lineNodes(presenting speciesID: Int?) -> [EvoLineItem] {
+        guard let speciesID, state.active?.pathIDs.contains(speciesID) == true else { return [] }
+        return lineNodes(beforeEvolvingFrom: speciesID)
+    }
+
+    static func preEvolveLineItems(tree: EvoNode, pathIDs: [Int], stageIndex: Int, currentID: Int,
+                                   sourceID: Int?) -> [EvoLineItem] {
+        guard let sourceID, let index = pathIDs.prefix(stageIndex).lastIndex(of: sourceID) else {
+            return lineItems(tree: tree, pathIDs: pathIDs, stageIndex: stageIndex, currentID: currentID)
         }
+        return lineItems(tree: tree, pathIDs: Array(pathIDs.prefix(index + 1)), stageIndex: index, currentID: sourceID)
+    }
+
+    /// Realized stages (done / current), then what can still come after the current species: its
+    /// guaranteed single-child chain, ending in a mystery node where the line branches.
+    static func lineItems(tree: EvoNode, pathIDs: [Int], stageIndex: Int, currentID: Int) -> [EvoLineItem] {
+        var out = realizedLineItems(pathIDs: pathIDs, stageIndex: stageIndex)
+        guard let current = tree.node(withID: currentID) else { return out }
+        var node = current
+        while node.children.count == 1, let child = node.children.first {
+            out.append(EvoLineItem(.species(child.speciesID), .future))
+            node = child
+        }
+        if node.children.count > 1 { out.append(EvoLineItem(.mystery, .future)) }
         return out
     }
 
@@ -1047,11 +1220,12 @@ final class CompanionStore {
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
-                fireCelebration(.evolve)
-                // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
-                // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
-                eventUntil = clock().addingTimeInterval(4)
-                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(from: oldName, to: newName))
+                let shiny = a.isShiny && a.dittoDisguise == nil
+                fireCelebration(
+                    .evolve(from: CelebrationSubject(speciesID: a.currentID, form: a.form, isShiny: shiny, name: oldName),
+                            to: CelebrationSubject(speciesID: next.speciesID, form: a.form, isShiny: shiny, name: newName)),
+                    title: l.notifEvolveTitle, body: l.notifEvolveBody(from: oldName, to: newName),
+                    levelUpSeconds: 4)
             }
         }
         reconcileActiveProfileGrowth()
@@ -1137,9 +1311,10 @@ final class CompanionStore {
                                   }, form: a.form, prayers: a.prayers))
         let name = formDisplayName(currentLine?.localizedName(finalID, state.language) ?? "",
                                    speciesID: finalID, form: a.form)
-        justGraduated = name
-        notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
-        eventUntil = clock().addingTimeInterval(6)
+        // Behind any evolution still to play: the graduation is the last thing this companion does. Its queued
+        // sequences stay (a catch-up) until the next companion hatches.
+        announceInOrder(DeferredCompanionEvent(title: l.notifGraduateTitle, body: l.notifGraduateBody(name),
+                                               levelUpSeconds: 6, graduated: name))
         state.active = nil
         state.reconcileRepresentativeSelection()   // 졸업 체인이 dex 로 옮겨져 선택은 정상적으로 유지된다
         activeGeneration += 1
@@ -1386,6 +1561,7 @@ final class CompanionStore {
         // 끊긴 경우만 자동 추적으로 복귀한다.
         state.reconcileRepresentativeSelection()
         activeGeneration += 1
+        dropEarlierCompanionsCelebrations()   // the released companion's sequences go with it
         currentLine = nil
         state.eggUsage = 0            // 새 알은 처음부터 인큐베이션(재부화에 5M 필요)
         state.resetEggPrayers()
@@ -1538,11 +1714,15 @@ final class CompanionStore {
     struct CompanionEvent: Equatable { let seq: Int; let text: String; let at: Date }
     private(set) var latestEvent: CompanionEvent?
     private var eventSeq = 0
+    /// Sees every `latestEvent` in order; tests use it to check that no event overtakes another.
+    @ObservationIgnored var companionEventObserver: ((CompanionEvent) -> Void)?
 
     private func notifyCompanionEvent(_ title: String, _ body: String, showsOnPet: Bool = true) {
         if showsOnPet {
             eventSeq += 1
-            latestEvent = CompanionEvent(seq: eventSeq, text: body, at: clock())
+            let event = CompanionEvent(seq: eventSeq, text: body, at: clock())
+            latestEvent = event
+            companionEventObserver?(event)
         }
         guard AppEnv.isBundledApp else { return }
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
@@ -1797,6 +1977,7 @@ final class CompanionStore {
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
         activeGeneration += 1
+        dropEarlierCompanionsCelebrations()   // a graduated or released companion's catch-up no longer plays
         state.active = MonState(baseID: line.baseID, pathIDs: [line.baseID], plannedPathIDs: evolutionPlan,
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
@@ -1811,14 +1992,19 @@ final class CompanionStore {
         } else {
             hatchBody = showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name)
         }
-        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody)
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
-        displayState = .levelUp
-        eventUntil = clock().addingTimeInterval(4)
+        // Fired before the carry-over so a hatch-time evolution queues after it.
+        fireCelebration(
+            .hatch(to: CelebrationSubject(speciesID: line.baseID, form: form, isShiny: showShiny, name: name)),
+            title: showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, body: hatchBody, levelUpSeconds: 4)
+        let hatchID = celebrations.items.last?.id
         if overflow > 0 { applyUsage(overflow) }   // 이월분 즉시 반영(필요 시 진화/리빌까지)
-        // 연출은 이월 진화 뒤에 발화 — 이월 evolve 가 shiny 부화 버스트를 덮지 않도록
-        // 마지막 이벤트를 hatch 로 유지한다. 이월로 즉시 졸업한 극단 케이스면 생략(이미 도감행).
-        if state.active != nil { fireCelebration(.hatch(shiny: showShiny)) }
+        // Instant graduation from the carry-over: the hatched mon is already in the dex, drop its sequence.
+        // Evolves the carry-over queued after it belong to that same departed mon. Their notifications go out
+        // as if nobody could play them, in order, ending on the graduation that waited behind them.
+        if state.active == nil, let hatchID {
+            for event in celebrations.removeFrom(id: hatchID) { send(event) }
+        }
         save()
         if detailProvider != nil { Task { await self.loadPokemonDetails(speciesID: line.baseID) } }
     }
@@ -1864,11 +2050,12 @@ final class CompanionStore {
         state.reconcileRepresentativeSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
         currentLine = dittoLine
         AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
-        fireCelebration(.dittoReveal(shiny: shiny))
-        displayState = .levelUp
-        eventUntil = clock().addingTimeInterval(5)
-        notifyCompanionEvent(shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
-                             shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName))
+        // The Ditto reveal keeps its immediate notification, unless a sequence still to play holds an earlier one.
+        announceInOrder(DeferredCompanionEvent(
+            title: shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
+            body: shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName),
+            levelUpSeconds: 5))
+        celebrations.enqueue(.dittoReveal(shiny: shiny), deferred: nil, generation: activeGeneration)
         save()
         applyUsage(0)   // 이월분으로 메타몽 졸업 재평가(rare 3B라 보통 즉시 졸업 아님)
         isRevealingDitto = false   // Details are enrichment, not part of the reveal transaction.
@@ -2033,7 +2220,7 @@ final class CompanionStore {
         justEvolvedTo = nil
         justGraduated = nil
         eventUntil = nil
-        celebration = nil
+        dropEarlierCompanionsCelebrations(keepingPlaying: false)   // held notifications go out first, in order
         isHatchRetryDelayed = false
         // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
         // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.
