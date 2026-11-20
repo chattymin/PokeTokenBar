@@ -25,6 +25,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
+    /// The popover is on screen (between `showPopover` and `popoverDidClose`); see `syncPopoverOwnership`.
+    private var popoverShown = false
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
     // 프레임 = 이미 22px 로 합성된 이미지 + delay. egg/static 은 2프레임 bob, animated 는 GIF 실제 프레임.
@@ -114,6 +116,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             onOpenPopover: { [weak self] in self?.openPopover() },
             onHide: { [weak self] in self?.store.floatingPetEnabled = false }
         )   // 데스크톱 플로팅 펫(옵트인)
+        // The pet follows the lock screen / screensaver / user switch; the popover reads the same state.
+        floatingPet.onSessionInteractiveChange = { [weak self] _ in self?.syncPopoverOwnership() }
         Task { await updater.check() }                    // 기동 시 1회 업데이트 확인
 
         statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
@@ -639,6 +643,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard let button = statusItem.button, !popover.isShown else { return }
         navigation.reset()   // 닫혔다 열리면 항상 Home 으로 (설정 화면 잔류 방지)
         route(navigation)
+        popoverShown = true
+        syncPopoverOwnership()   // the popover now owns the celebrations (live + catch-up on Home)
         buildPopoverContent()   // 열 때 호스팅 트리 생성(닫힐 때 해제)
         // LSUIElement 앱이 비활성이면 팝오버 내부 버튼 클릭이 무시됨 — show 전에 활성화 보장
         NSApp.activate(ignoringOtherApps: true)
@@ -658,6 +664,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 팝오버가 닫히면 호스팅 컨트롤러 해제(숨은 트리 재레이아웃 비용 제거) + 메뉴바 애니메이션 재개.
     func popoverDidClose(_ notification: Notification) {
         stopOutsideClickMonitor()
+        // Before the tree goes: the header cancels a playing sequence (it replays next time) and
+        // held notifications go out unless the floating pet takes over.
+        popoverShown = false
+        syncPopoverOwnership()
         popover.contentViewController = nil
         syncMenuAnimation()
     }
@@ -708,6 +718,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         syncMenuAnimation()
         floatingPet.setDisplayAwake(awake)   // 슬립 중엔 펫 호스팅 트리 해제(GIF 루프 정지)
+        syncPopoverOwnership()
+    }
+
+    /// A popover left open behind a sleeping display or a lock screen does not own the queue: its sequence is
+    /// cancelled like a close (never counted as seen there) and replays from the start when someone is back.
+    private func syncPopoverOwnership() {
+        let live = CelebrationQueue.popoverLive(shown: popoverShown, displayAwake: displayAwake,
+                                                sessionInteractive: floatingPet.sessionInteractive)
+        if companion.popoverOpen != live { companion.popoverOpen = live }
+    }
+
+    /// The celebration queue is not persisted: notifications still held for a sequence go out now, in order.
+    func applicationWillTerminate(_ notification: Notification) {
+        companion?.flushHeldNotifications()
     }
 
     /// menuShouldAnimate 상태에 맞춰 애니메이션을 재개/정지한다(멱등 — 중복 호출 안전).

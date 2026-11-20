@@ -323,8 +323,8 @@ final class FloatingPetAgentWiringTests: XCTestCase {
 
         try send("done", to: fixture.controller)
         let run = fixture.controller.beginRun(cursor: NSPoint(x: 800, y: 600), visibleFrame: screen)
-        fixture.controller.panelDidMove(panelOrigin: NSPoint(x: 500, y: 400), userDragging: false)
-        fixture.controller.panelDidMove(panelOrigin: run.origin, userDragging: false)
+        fixture.controller.panelDidMove(panelOrigin: NSPoint(x: 500, y: 400), panelSize: run.size, userDragging: false)
+        fixture.controller.panelDidMove(panelOrigin: run.origin, panelSize: run.size, userDragging: false)
         XCTAssertEqual(fixture.defaults.double(forKey: "floatingPetOriginX"), 300)
         XCTAssertEqual(fixture.defaults.double(forKey: "floatingPetOriginY"), 200)
 
@@ -343,16 +343,15 @@ final class FloatingPetAgentWiringTests: XCTestCase {
         fixture.defaults.set(200.0, forKey: "floatingPetOriginY")
 
         try send("done", to: fixture.controller)
-        _ = fixture.controller.beginRun(cursor: NSPoint(x: 800, y: 600),
-                                        visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
+        let run = fixture.controller.beginRun(cursor: NSPoint(x: 800, y: 600),
+                                              visibleFrame: NSRect(x: 0, y: 0, width: 1440, height: 900))
         let dropped = NSPoint(x: 900, y: 100)
-        fixture.controller.panelDidMove(panelOrigin: dropped, userDragging: true)
+        fixture.controller.panelDidMove(panelOrigin: dropped, panelSize: run.size, userDragging: true)
         XCTAssertEqual(fixture.controller.runPhase, .home, "the return is cancelled")
 
         let petSize = CGFloat(fixture.store.floatingPetSize)
-        let pet = FloatingPetController.petOrigin(
-            panelOrigin: dropped, petSize: petSize,
-            panelSize: FloatingPetController.panelSize(petSize: petSize, showingBubble: true))
+        XCTAssertEqual(run.size, FloatingPetController.panelSize(petSize: petSize, showingBubble: true, celebrating: false))
+        let pet = FloatingPetController.petOrigin(panelOrigin: dropped, petSize: petSize, panelSize: run.size)
         XCTAssertEqual(fixture.defaults.double(forKey: "floatingPetOriginX"), Double(pet.x))
         XCTAssertEqual(fixture.defaults.double(forKey: "floatingPetOriginY"), Double(pet.y))
     }

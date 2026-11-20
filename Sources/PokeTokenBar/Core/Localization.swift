@@ -1188,7 +1188,6 @@ struct L {
     var finalForm: String { t("최종 진화체", "Final form", "最終進化", "Forma final", "Forme finale", "Forma final", "Letzte Entwicklungsstufe", "Финальная форма") }
     func stage(_ i: Int, _ k: Int) -> String { t("진화 단계 \(i) / \(k)", "Stage \(i) / \(k)", "進化段階 \(i) / \(k)", "Etapa \(i) / \(k)", "Stade \(i) / \(k)", "Estágio \(i) / \(k)", "Entwicklungsstufe \(i) / \(k)", "Стадия \(i) / \(k)") }
     var unknownNextEvolution: String { t("알 수 없는 다음 진화", "Unknown next evolution", "次の進化先は不明", "Próxima evolución desconocida", "Prochaine évolution inconnue", "Próxima evolução desconhecida", "Nächste Entwicklung unbekannt", "Следующая эволюция неизвестна") }
-    var eggIncubating: String { t("🥚 부화 준비 중", "🥚 Incubating", "🥚 孵化の準備中", "🥚 Incubando", "🥚 En incubation", "🥚 Incubando", "🥚 Wird ausgebrütet", "🥚 Инкубация") }
     func eggToHatch(_ amount: String) -> String { t("부화까지 \(amount)", "\(amount) to hatch", "孵化まで \(amount)", "\(amount) para eclosionar", "\(amount) avant l'éclosion", "\(amount) para chocar", "\(amount) bis zum Schlüpfen", "Ещё \(amount) до вылупления") }
     /// 알 부화 임계 도달 후 외부 데이터 요청이 실패한 동안의 다음 새로고침 안내.
     var eggHatchDelayed: String {
@@ -1430,7 +1429,6 @@ struct L {
         }
         return t("기도 \(n)번 끝에 \(KoreanParticle.subject.attach(to: name)) 나왔어요. 반은 통한 걸로 칩시다.", "\(n) prayers later: \(name). Let's call it half a miracle.", "お祈り\(n)回の末、\(name) が生まれました。半分は通じたってことにしよう。", "Tras \(n) oraciones: \(name). Digamos que fue medio milagro.", "Après \(n) prières : \(name). Disons que c'est un demi-miracle.", "Após \(n) orações: \(name). Vamos chamar de meio milagre.", "Nach \(n) Gebeten: \(name). Nennen wir es ein halbes Wunder.", "После \(n) молитв: \(name). Считаем это половиной чуда.")
     }
-    var eggImminent: String { t("곧 부화해요!", "About to hatch!", "もうすぐ孵化！", "¡Está a punto de eclosionar!", "Sur le point d'éclore !", "Está quase chocando!", "Schlüpft gleich!", "Вот-вот вылупится!") }
     // MARK: 알 부화 단계 문구 / 연출 대사 (게임 느낌을 살린 의역 — 공식 문구 그대로가 아니다)
     var eggTierEarly: String { t("이 알이 부화하려면 아직 한참 남았어요.", "This egg still has a long way to go.", "このタマゴが孵るまでには、まだまだ時間がかかりそうだ。", "Aún falta mucho para que este huevo eclosione.", "Il faudra encore beaucoup de temps avant que cet œuf éclose.", "Ainda falta muito para este ovo chocar.", "Bis dieses Ei schlüpft, dauert es noch lange.", "Этому яйцу ещё долго до вылупления.") }
     var eggTierMoving: String { t("가끔 움직여요. 곧 부화할 것 같아요.", "It moves now and then. It should hatch before long.", "ときどき動いている。もうすぐ孵りそうだ。", "Se mueve de vez en cuando. Debe de estar a punto de eclosionar.", "Il bouge de temps en temps. Il doit être sur le point d'éclore.", "Mexe de vez em quando. Deve estar quase chocando.", "Es bewegt sich ab und zu. Bald schlüpft es wohl.", "Иногда шевелится. Скоро, наверное, вылупится.") }

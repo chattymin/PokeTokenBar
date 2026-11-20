@@ -2260,7 +2260,7 @@ final class UsageStore {
         }
     }
 
-    private func showBubble(_ alert: LimitAlert?) {
+    func showBubble(_ alert: LimitAlert?) {   // internal: floating-pet tests raise an alert directly
         guard let alert else { return }
         let now = Date()
         currentBubbleAlert = alert
