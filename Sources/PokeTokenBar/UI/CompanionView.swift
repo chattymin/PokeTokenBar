@@ -672,7 +672,12 @@ struct CompanionHeader: View {
     @State private var celebScale: CGFloat = 1
     @State private var shinyBurst = false
     @State private var dittoBurst = false   // 메타몽 리빌 🎭 버스트
-    @State private var seenSeq = -1     // 재생 완료한 celebrationSeq (팝오버 재오픈 시 1회 재생 보장)
+    // 연출 큐 재생 — store 큐에서 하나 꺼내(consume = 1회성 보장, 재마운트돼도 다시 안 나온다) 끝나면 다음.
+    @State private var playing: PlayingCelebration?
+    @State private var playSerial = 0
+    /// 부화·진화 연출이 공개 순간에 닿기 전까지 정보 칸(이름·등급·진화 라인)을 가린다.
+    @State private var concealUntilReveal = false
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var eggWiggle = false
     // 사탕 "+XP" 순간 표시 (진화 없이 부분 진행일 때도 피드백)
     @State private var seenCandySeq = -1
@@ -698,9 +703,7 @@ struct CompanionHeader: View {
         let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny, spriteStore: spriteStore, form: store.currentForm,
-                           back: store.facesBack)
+                spriteBox
                     .frame(width: 76, height: 76)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
@@ -744,7 +747,7 @@ struct CompanionHeader: View {
                     // Outermost, so the celebration overlays and animations above stay intact.
                     // An egg has no species (nil) and therefore no link.
                     .modifier(DexEntryLink(
-                        target: store.currentSpeciesID.flatMap { dexLinks[$0] },
+                        target: concealment != nil ? nil : store.currentSpeciesID.flatMap { dexLinks[$0] },
                         hint: store.l.dexOpenEntryHint, accessibilityName: store.displayName,
                         cornerRadius: 12, open: onOpenDexEntry))
                 VStack(alignment: .leading, spacing: 4) {
@@ -814,6 +817,12 @@ struct CompanionHeader: View {
                     }
                     Text(statusLine).font(.caption2).foregroundStyle(.secondary)
                 }
+                // 공개 전엔 새 모습의 이름·등급·타입·단계가 결과를 먼저 말하지 않게 가린다. 레이아웃은
+                // 유지(불투명도 0)해 공개 순간 칸이 출렁이지 않고, 그 자리엔 알/옛 단계 문구를 얹는다.
+                .opacity(concealment == nil ? 1 : 0)
+                .accessibilityHidden(concealment != nil)
+                .overlay(alignment: .topLeading) { concealedCaption }
+                .animation(.easeIn(duration: 0.3), value: concealment == nil)
                 Spacer()
             }
             if store.hasActive, !store.lineNodes.isEmpty {
@@ -822,8 +831,11 @@ struct CompanionHeader: View {
                             language: store.language, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.scrollContentWidth, form: store.currentForm,
                             dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry, spriteStore: spriteStore)
+                    .opacity(concealment == nil ? 1 : 0)
+                    .accessibilityHidden(concealment != nil)
+                    .animation(.easeIn(duration: 0.3), value: concealment == nil)
             }
-            if let g = store.justGraduated {
+            if let g = store.justGraduated, concealment == nil {
                 Text(store.l.graduated(g))
                     .font(.caption2).foregroundStyle(.orange)
             }
@@ -834,36 +846,147 @@ struct CompanionHeader: View {
             if store.hasActive, let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
         }
         .onAppear {
-            playCelebrationIfNeeded()
+            playNextCelebrationIfIdle()
             showCandyXPIfNeeded()
             showMintIfNeeded()
             syncEggWiggle()
         }
-        .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
+        .onChange(of: store.celebrationSeq) { playNextCelebrationIfIdle() }
+        // 재생 중인 연출의 공개·종료 시각. 뷰가 사라지면 취소되고(남은 큐는 store 에 남아 다음 오픈에
+        // 재생), 다시 나타나면 시작 시각 기준으로 남은 만큼만 기다린다.
+        .task(id: playing?.serial) { await runPlayingCelebration() }
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
         .task(id: store.currentForm) { await store.loadActiveFormNames() }   // The title names the form.
     }
 
-    /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.
-    private func playCelebrationIfNeeded() {
-        guard let c = store.celebration, store.celebrationSeq != seenSeq else { return }
-        seenSeq = store.celebrationSeq
-        store.consumeCelebration()
-        flashOpacity = 0.85
-        celebScale = 0.6
-        withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
-        if case .hatch(shiny: true) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
-            }
+    /// 칸에 그릴 스프라이트 하나(종 nil = 알).
+    struct CelebrationSprite: Equatable {
+        var speciesID: Int?
+        var shiny = false
+        var form: PokemonForm?
+        var back = false
+    }
+
+    /// 재생 중인 연출 — 시각은 절대값으로 들고 있어 재마운트 뒤에도 이어서 계산된다.
+    private struct PlayingCelebration: Equatable {
+        enum Kind: Equatable {
+            case hatch(HatchEffect.Profile, reveal: CelebrationSprite)
+            case graduate(CelebrationSprite)
+            /// 진화·메타몽 리빌 — 기존 플래시·팝(·🎭)을 평소 스프라이트 위에(칸 내용은 그대로).
+            case overlay
         }
-        // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
-        if case .dittoReveal(let shiny) = c {
+        let serial: Int
+        let kind: Kind
+        let start: Date
+        let revealAt: TimeInterval?
+        let duration: TimeInterval
+        let shinyBurst: Bool
+    }
+
+    /// 연출 c 가 시작되기 **직전**의 칸 모습. 큐가 비어 있지 않은 동안 칸이 결과를 먼저 보여 주지 않게
+    /// 하고(store 는 이미 새 상태다), 부화 공개 모습을 정하는 데도 쓴다: 부화 뒤 같은 갱신에 진화·졸업이
+    /// 이어졌으면 갓 부화한 모습은 지금 상태가 아니라 그 다음 연출의 "직전 모습"이다.
+    nonisolated static func spriteBefore(_ c: CompanionStore.Celebration?,
+                                         current: CelebrationSprite) -> CelebrationSprite {
+        switch c {
+        case .hatch?: return CelebrationSprite(speciesID: nil)
+        case .graduate(let id, let shiny, let form)?: return CelebrationSprite(speciesID: id, shiny: shiny, form: form)
+        case .evolve?, .dittoReveal?, nil: return current
+        }
+    }
+
+    private var currentSprite: CelebrationSprite {
+        CelebrationSprite(speciesID: store.currentSpeciesID, shiny: store.currentIsShiny,
+                          form: store.currentForm, back: store.facesBack)
+    }
+
+    private func sprite(_ s: CelebrationSprite) -> SpriteView {
+        SpriteView(speciesID: s.speciesID, size: 76, bob: true, animated: true, shiny: s.shiny,
+                   spriteStore: spriteStore, form: s.form, back: s.back)
+    }
+
+    @ViewBuilder
+    private var spriteBox: some View {
+        if let p = playing, p.kind != .overlay {
+            TimelineView(.animation) { context in
+                let t = max(0, context.date.timeIntervalSince(p.start))
+                switch p.kind {
+                case .hatch(let profile, let reveal):
+                    HatchEffectView(profile: profile, elapsed: t, reduceMotion: reduceMotion) {
+                        sprite(CelebrationSprite(speciesID: nil))
+                    } hatchling: { sprite(reveal) }
+                case .graduate(let mon):
+                    GraduationEffectView(elapsed: t, reduceMotion: reduceMotion) { sprite(mon) } egg: {
+                        sprite(CelebrationSprite(speciesID: nil))
+                    }
+                case .overlay:
+                    sprite(currentSprite)
+                }
+            }
+        } else {
+            sprite(Self.spriteBefore(store.celebration, current: currentSprite))
+        }
+    }
+
+    /// 정보 칸을 가리는 이유 — 부화(알 문구). nil = 가리지 않음.
+    private enum Concealment: Equatable { case egg }
+
+    private var concealment: Concealment? {
+        if concealUntilReveal, let p = playing {
+            if case .hatch = p.kind { return .egg }
+        }
+        for c in store.pendingCelebrations {
+            if case .hatch = c { return .egg }
+        }
+        return nil
+    }
+
+    @ViewBuilder
+    private var concealedCaption: some View {
+        switch concealment {
+        case .egg?:
+            Text(store.l.eggImminent).font(.caption.weight(.semibold)).foregroundStyle(.orange)
+        case nil:
+            EmptyView()
+        }
+    }
+
+    /// 큐 맨 앞 연출을 꺼내 재생을 시작한다(재생 중이면 끝난 뒤 `runPlayingCelebration` 이 다시 부른다).
+    private func playNextCelebrationIfIdle() {
+        guard playing == nil, let c = store.consumeCelebration() else { return }
+        playSerial += 1
+        let now = Date()
+        switch c {
+        case .hatch(let shiny, let rarity):
+            let profile = HatchEffect.profile(for: rarity)
+            let reveal = Self.spriteBefore(store.celebration, current: currentSprite)
+            concealUntilReveal = true
+            playing = PlayingCelebration(
+                serial: playSerial, kind: .hatch(profile, reveal: CelebrationSprite(
+                    speciesID: reveal.speciesID, shiny: reveal.shiny, form: reveal.form)),
+                start: now, revealAt: HatchEffect.revealTime(profile, reduceMotion: reduceMotion),
+                duration: HatchEffect.duration(profile, reduceMotion: reduceMotion), shinyBurst: shiny)
+        case .evolve:
+            // 진화 — 흰 플래시 페이드아웃 + 스프링 팝(본가 진화 신 오마주).
+            flashOpacity = 0.85
+            celebScale = 0.6
+            withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
+            playing = PlayingCelebration(serial: playSerial, kind: .overlay, start: now, revealAt: nil,
+                                         duration: 0.9, shinyBurst: false)
+        case .graduate(let id, let shiny, let form):
+            playing = PlayingCelebration(
+                serial: playSerial, kind: .graduate(CelebrationSprite(speciesID: id, shiny: shiny, form: form)),
+                start: now, revealAt: nil, duration: GraduationEffect.duration(reduceMotion: reduceMotion),
+                shinyBurst: false)
+        case .dittoReveal(let shiny):
+            // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
+            flashOpacity = 0.85
+            celebScale = 0.6
+            withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
+            withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
             withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
             if shiny {
                 withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { shinyBurst = true }
@@ -872,7 +995,34 @@ struct CompanionHeader: View {
                 try? await Task.sleep(nanoseconds: 2_600_000_000)
                 withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; shinyBurst = false }
             }
+            playing = PlayingCelebration(serial: playSerial, kind: .overlay, start: now, revealAt: nil,
+                                         duration: 1.2, shinyBurst: false)
         }
+    }
+
+    /// 공개 순간에 정보 칸을 드러내고(이로치면 ✨), 끝나면 다음 연출로 넘어간다.
+    private func runPlayingCelebration() async {
+        guard let p = playing else { return }
+        if let reveal = p.revealAt {
+            let wait = p.start.addingTimeInterval(reveal).timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            if concealUntilReveal {
+                concealUntilReveal = false
+                if p.shinyBurst {
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 2_600_000_000)
+                        withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
+                    }
+                }
+            }
+        }
+        let rest = p.start.addingTimeInterval(p.duration).timeIntervalSinceNow
+        if rest > 0 { try? await Task.sleep(for: .seconds(rest)) }
+        guard !Task.isCancelled, playing?.serial == p.serial else { return }
+        playing = nil
+        playNextCelebrationIfIdle()
     }
 
     /// 사탕 사용 "+XP" 1회 표시. store 를 consume 해 1회성 보장 — 다른 탭 갔다 홈 재진입해

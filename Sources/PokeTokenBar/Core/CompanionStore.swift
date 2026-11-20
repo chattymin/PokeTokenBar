@@ -24,13 +24,42 @@ final class CompanionStore {
     private(set) var justGraduated: String?
     private var eventUntil: Date?
 
-    /// 부화/진화 연출 트리거 — seq 증가로 UI 가 감지, 팝오버가 닫혀 있었어도 다음 오픈에 1회 재생.
-    enum Celebration: Equatable { case hatch(shiny: Bool), evolve, dittoReveal(shiny: Bool) }
-    private(set) var celebration: Celebration?
+    /// 부화/진화/졸업 연출 트리거 — seq 증가로 UI 가 감지, 팝오버가 닫혀 있었어도 다음 오픈에 1회 재생.
+    /// `hatch.rarity` 는 알이 깨지는 연출의 등급 신호다. 위장 메타몽이면 **위장 라인의 등급**을 싣는다
+    /// (이름·배지와 같은 값 — 연출이 정체를 먼저 누설하면 안 된다). `graduate` 는 졸업 직전의 최종 종을
+    /// 싣는다 — 연출이 재생될 땐 `state.active` 가 이미 새 알이라 상태에서 다시 읽을 수 없다.
+    enum Celebration: Equatable {
+        case hatch(shiny: Bool, rarity: Rarity)
+        case evolve
+        case dittoReveal(shiny: Bool)
+        case graduate(speciesID: Int, shiny: Bool, form: PokemonForm?)
+    }
+    /// 한 번의 사용량 갱신이 부화→이월 진화→졸업까지 한꺼번에 낼 수 있어 슬롯 하나로는 앞의 연출이
+    /// 덮인다. 헤더가 앞에서부터 하나씩 꺼내 순서대로 재생하는 FIFO 다.
+    private(set) var pendingCelebrations: [Celebration] = []
+    /// 큐 상한 — 팝오버를 오래 닫아 둔 사이 쌓인 연출을 전부 재생하면 열자마자 수십 초가 묶인다.
+    /// 넘치면 **오래된 것부터** 버린다: 남는 쪽이 지금 화면 상태와 이어지는 최근 사건이다.
+    static let celebrationQueueCap = 4
     private(set) var celebrationSeq = 0
-    private func fireCelebration(_ c: Celebration) { celebration = c; celebrationSeq += 1 }
-    /// 연출 재생 후 UI 가 호출(1회성 보장).
-    func consumeCelebration() { celebration = nil }
+    /// 다음에 재생될 연출(없으면 nil).
+    var celebration: Celebration? { pendingCelebrations.first }
+    /// 재생 대기 중인 부화가 있는가 — 헤더는 그 부화가 재생돼 정체를 드러낼 때까지 새 포켓몬의
+    /// 이름·등급·진화 라인을 가린다(연출보다 먼저 정보 칸이 결과를 말해 버리면 연출이 의미 없다).
+    var hasPendingHatch: Bool {
+        pendingCelebrations.contains { if case .hatch = $0 { true } else { false } }
+    }
+    private func fireCelebration(_ c: Celebration) {
+        pendingCelebrations.append(c)
+        if pendingCelebrations.count > Self.celebrationQueueCap {
+            pendingCelebrations.removeFirst(pendingCelebrations.count - Self.celebrationQueueCap)
+        }
+        celebrationSeq += 1
+    }
+    /// 연출을 재생하기 시작할 때 UI 가 호출해 맨 앞을 꺼낸다(1회성 보장 — 재마운트돼도 다시 안 나온다).
+    @discardableResult
+    func consumeCelebration() -> Celebration? {
+        pendingCelebrations.isEmpty ? nil : pendingCelebrations.removeFirst()
+    }
 
     /// 사탕 사용 시 "+XP" 순간 표시 — 진화 없이 부분 진행일 때도 피드백. seq 증가로 CompanionHeader 감지.
     private(set) var candyFeedbackSeq = 0
@@ -1138,6 +1167,12 @@ final class CompanionStore {
         let name = formDisplayName(currentLine?.localizedName(finalID, state.language) ?? "",
                                    speciesID: finalID, form: a.form)
         justGraduated = name
+        // 졸업 연출은 지금 개체로 그려야 한다 — 아래에서 active 를 비우면 다시 읽을 수 없다.
+        // 대기 중인 진화 연출은 버린다: 몬스터볼 연출이 최종 모습을 보여 주므로, 남겨 두면 이미 알이
+        // 된 칸에서 진화 플래시가 뒤늦게 터진다.
+        pendingCelebrations.removeAll { $0 == .evolve }
+        fireCelebration(.graduate(speciesID: finalID, shiny: a.displaysShiny,
+                                  form: PokemonForm.resolved(speciesID: finalID, form: a.form)))
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
         eventUntil = clock().addingTimeInterval(6)
         state.active = nil
@@ -1395,6 +1430,8 @@ final class CompanionStore {
         state.pendingForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
+        // 놓아준 개체의 대기 연출도 버린다 — 남기면 다음 오픈에 새 알 위에서 옛 개체의 부화가 재생된다.
+        pendingCelebrations.removeAll()
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
@@ -1815,10 +1852,16 @@ final class CompanionStore {
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
+        let seqBeforeOverflow = celebrationSeq
         if overflow > 0 { applyUsage(overflow) }   // 이월분 즉시 반영(필요 시 진화/리빌까지)
-        // 연출은 이월 진화 뒤에 발화 — 이월 evolve 가 shiny 부화 버스트를 덮지 않도록
-        // 마지막 이벤트를 hatch 로 유지한다. 이월로 즉시 졸업한 극단 케이스면 생략(이미 도감행).
-        if state.active != nil { fireCelebration(.hatch(shiny: showShiny)) }
+        // 부화 연출은 이월이 낸 연출보다 **앞에** 둔다. 이월 진화는 버린다 — 부화 공개가 이미 이월 뒤
+        // 모습을 보여 주므로 진화 플래시가 부화 연출을 덮을 뿐이다. 이월로 즉시 졸업했으면
+        // 부화 → 졸업 순으로 둘 다 재생한다(부화를 건너뛰면 알이 깨지는 순간 없이 도감행이 된다).
+        let overflowCount = min(celebrationSeq - seqBeforeOverflow, pendingCelebrations.count)
+        let overflowCelebrations = pendingCelebrations.suffix(overflowCount).filter { $0 != .evolve }
+        pendingCelebrations.removeLast(overflowCount)
+        fireCelebration(.hatch(shiny: showShiny, rarity: line.rarity))
+        overflowCelebrations.forEach(fireCelebration)
         save()
         if detailProvider != nil { Task { await self.loadPokemonDetails(speciesID: line.baseID) } }
     }
@@ -2033,7 +2076,7 @@ final class CompanionStore {
         justEvolvedTo = nil
         justGraduated = nil
         eventUntil = nil
-        celebration = nil
+        pendingCelebrations.removeAll()
         isHatchRetryDelayed = false
         // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
         // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.
