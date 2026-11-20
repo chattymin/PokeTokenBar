@@ -465,3 +465,131 @@ struct GraduationEffectView<Pokemon: View, Egg: View>: View {
         .frame(width: size, height: size)
     }
 }
+
+// MARK: - 진화 (본가 진화 신 오마주)
+
+/// 옛 모습이 흰 실루엣이 되고, 옛·새 실루엣이 처음엔 느리게 점점 빠르게 번갈아 보이다가, 섬광과 함께
+/// 새 모습이 튀어나오는 진화 연출의 타이밍 표.
+enum EvolutionEffect {
+    /// 흰 실루엣으로 변하는 구간 끝.
+    static let whitenEnd: TimeInterval = 0.4
+    /// 번갈아 보이기 구간 끝 — 여기서 새 모습(흰 실루엣)으로 멈추고 섬광이 차오른다.
+    static let alternateEnd: TimeInterval = 1.7
+    /// 섬광 최고조 = 새 모습 공개(정보 칸도 이때 새 단계로 바뀐다).
+    static let revealAt: TimeInterval = 1.85
+    static let tail: TimeInterval = 0.7
+    static var duration: TimeInterval { revealAt + tail }
+    /// 번갈아 보이는 횟수(반주기 단위 4.5회 = 옛→새로 끝난다). 시작 1Hz 에서 선형으로 빨라진다.
+    static let alternationCycles: Double = 4.5
+    static let startFrequency: Double = 1
+    static let reducedRevealAt: TimeInterval = 0.5
+    static let reducedTail: TimeInterval = 0.5
+
+    static func revealTime(reduceMotion: Bool) -> TimeInterval { reduceMotion ? reducedRevealAt : revealAt }
+    static func duration(reduceMotion: Bool) -> TimeInterval {
+        reduceMotion ? reducedRevealAt + reducedTail : duration
+    }
+
+    struct Frame: Equatable {
+        /// 0 = 옛 모습, 1 = 새 모습(교차 비율).
+        var mix: Double = 0
+        var oldScale: Double = 1
+        var newScale: Double = 1
+        /// 흰 실루엣 정도 0…1.
+        var whiteness: Double = 0
+        var glow: Double = 0
+        var flash: Double = 0
+        var revealed = false
+        var popScale: Double = 1
+        /// 공개 뒤 반짝이 진행률(0 = 안 보임).
+        var sparkle: Double = 0
+    }
+
+    /// 번갈아 보이기 구간에서 지나간 주기 수 — 주파수가 시작값에서 선형으로 올라 정확히
+    /// `alternationCycles` 에서 끝나도록 끝 주파수를 맞춘다.
+    static func cycles(at t: TimeInterval) -> Double {
+        let span = alternateEnd - whitenEnd
+        let tau = min(max(0, t - whitenEnd), span)
+        let endFrequency = 2 * alternationCycles / span - startFrequency
+        return startFrequency * tau + (endFrequency - startFrequency) * tau * tau / (2 * span)
+    }
+
+    static func frame(at t: TimeInterval, reduceMotion: Bool = false) -> Frame {
+        var f = Frame()
+        let reveal = revealTime(reduceMotion: reduceMotion)
+        f.revealed = t >= reveal
+        if reduceMotion {
+            // 움직임 없이: 옛→새 교차 페이드 + 섬광.
+            f.mix = smoothstep(0, reveal, t)
+            f.flash = t < reveal ? 0.85 * smoothstep(reveal - 0.15, reveal, t)
+                                 : 0.85 * pow(1 - clamp01((t - reveal) / reducedTail), 2)
+            return f
+        }
+        if f.revealed {
+            let tau = t - reveal
+            f.mix = 1
+            f.whiteness = 1 - smoothstep(reveal, reveal + 0.3, t)
+            f.glow = 1 - smoothstep(reveal, reveal + tail, t)
+            f.popScale = 1 - 0.4 * exp(-5 * tau) * cos(9 * tau)
+            f.flash = pow(1 - clamp01(tau / (tail * 0.9)), 2)
+            f.sparkle = tau >= 0.1 && tau <= 0.6 ? (tau - 0.1) / 0.5 : 0
+            return f
+        }
+        f.whiteness = smoothstep(0.05, whitenEnd, t)
+        f.glow = smoothstep(0.05, whitenEnd + 0.3, t)
+        f.mix = t >= alternateEnd ? 1 : (1 - cos(2 * .pi * cycles(at: t))) / 2
+        // 옛 모습은 작아지며 사라지고 새 모습은 커지며 나타난다 — 형태가 줄었다 늘었다 하는 인상.
+        f.oldScale = 1 - 0.25 * f.mix
+        f.newScale = 0.75 + 0.25 * f.mix
+        f.flash = smoothstep(alternateEnd, reveal, t)
+        return f
+    }
+}
+
+/// 진화 연출 한 순간. `from`·`to` 는 진화 전·후 스프라이트(호출자가 그린다).
+@MainActor
+struct EvolutionEffectView<From: View, To: View>: View {
+    let elapsed: TimeInterval
+    var size: CGFloat = 76
+    var reduceMotion = false
+    @ViewBuilder var from: From
+    @ViewBuilder var to: To
+
+    var body: some View {
+        let f = EvolutionEffect.frame(at: elapsed, reduceMotion: reduceMotion)
+        let glowColor = Color(red: 0.72, green: 0.86, blue: 1)
+        ZStack {
+            if f.glow > 0 {
+                Circle()
+                    .fill(RadialGradient(colors: [glowColor.opacity(0.9), glowColor.opacity(0)],
+                                         center: .center, startRadius: 0, endRadius: size * 0.55))
+                    .frame(width: size * 1.1, height: size * 1.1)
+                    .opacity(f.glow)
+            }
+            if f.revealed {
+                to.brightness(f.whiteness).scaleEffect(f.popScale)
+            } else {
+                // brightness(1) 은 알파를 지키고 색만 하얗게 민다 → 스프라이트 모양 그대로의 흰 실루엣.
+                if f.mix < 1 {
+                    from.brightness(f.whiteness).scaleEffect(f.oldScale).opacity(1 - f.mix)
+                }
+                if f.mix > 0 {
+                    to.brightness(f.whiteness).scaleEffect(f.newScale).opacity(f.mix)
+                }
+            }
+            if f.sparkle > 0 {
+                ForEach(0..<4, id: \.self) { i in
+                    let a = Double(i) * .pi / 2 + .pi / 5
+                    let r = Double(size) * (0.22 + 0.2 * f.sparkle)
+                    Image(systemName: "sparkle")
+                        .font(.system(size: size * 0.14, weight: .bold))
+                        .foregroundStyle(Color.yellow)
+                        .offset(x: r * cos(a), y: r * sin(a))
+                        .opacity(1 - f.sparkle)
+                }
+            }
+            Color.white.opacity(f.flash).allowsHitTesting(false)
+        }
+        .frame(width: size, height: size)
+    }
+}

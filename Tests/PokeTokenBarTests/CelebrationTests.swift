@@ -124,6 +124,45 @@ final class GraduationEffectTests: XCTestCase {
     }
 }
 
+final class EvolutionEffectTests: XCTestCase {
+    func testSilhouetteAlternatesFasterAndEndsOnTheNewForm() {
+        XCTAssertEqual(EvolutionEffect.frame(at: 0).whiteness, 0)
+        XCTAssertEqual(EvolutionEffect.frame(at: EvolutionEffect.whitenEnd).whiteness, 1, accuracy: 1e-9)
+        XCTAssertEqual(EvolutionEffect.frame(at: EvolutionEffect.whitenEnd).mix, 0, accuracy: 1e-9, "옛 모습에서 시작")
+        XCTAssertEqual(EvolutionEffect.cycles(at: EvolutionEffect.alternateEnd), EvolutionEffect.alternationCycles,
+                       accuracy: 1e-9)
+        XCTAssertEqual(EvolutionEffect.frame(at: EvolutionEffect.alternateEnd).mix, 1, accuracy: 1e-9, "새 모습으로 끝난다")
+        // mix 가 0.5 를 지나는 시각 사이 간격이 점점 짧아진다(느리게 시작해 빨라진다).
+        var crossings: [TimeInterval] = []
+        var previous = EvolutionEffect.frame(at: EvolutionEffect.whitenEnd).mix
+        for t in stride(from: EvolutionEffect.whitenEnd, through: EvolutionEffect.alternateEnd, by: 0.002) {
+            let m = EvolutionEffect.frame(at: t).mix
+            if (previous - 0.5) * (m - 0.5) < 0 { crossings.append(t) }
+            previous = m
+        }
+        XCTAssertEqual(crossings.count, 9, "옛↔새 4.5 주기")
+        let gaps = zip(crossings.dropFirst(), crossings).map { $0 - $1 }
+        XCTAssertTrue(zip(gaps, gaps.dropFirst()).allSatisfy { $0 > $1 }, "간격이 줄어든다: \(gaps)")
+        XCTAssertFalse(EvolutionEffect.frame(at: EvolutionEffect.revealAt - 0.01).revealed)
+        let reveal = EvolutionEffect.frame(at: EvolutionEffect.revealAt)
+        XCTAssertTrue(reveal.revealed); XCTAssertEqual(reveal.flash, 1, accuracy: 1e-9)
+        XCTAssertEqual(reveal.popScale, 0.6, accuracy: 1e-9, "기존 스프링 팝과 같은 0.6 에서 튀어나온다")
+        let end = EvolutionEffect.frame(at: EvolutionEffect.duration)
+        XCTAssertEqual(end.flash, 0, accuracy: 1e-9); XCTAssertEqual(end.whiteness, 0)
+    }
+
+    func testReduceMotionIsACrossfadeAndFlash() {
+        for t in stride(from: 0.0, through: EvolutionEffect.duration(reduceMotion: true), by: 0.05) {
+            let f = EvolutionEffect.frame(at: t, reduceMotion: true)
+            XCTAssertEqual(f.oldScale, 1); XCTAssertEqual(f.newScale, 1); XCTAssertEqual(f.popScale, 1)
+            XCTAssertEqual(f.whiteness, 0)
+        }
+        XCTAssertEqual(EvolutionEffect.frame(at: 0.25, reduceMotion: true).mix, 0.5, accuracy: 1e-9)
+        XCTAssertTrue(EvolutionEffect.frame(at: EvolutionEffect.reducedRevealAt, reduceMotion: true).revealed)
+        XCTAssertLessThan(EvolutionEffect.duration(reduceMotion: true), EvolutionEffect.duration)
+    }
+}
+
 // MARK: 큐·페이로드(스토어)
 
 @MainActor
@@ -147,6 +186,7 @@ final class CelebrationQueueTests: XCTestCase {
             await s.hatch(baseID: 1)
             XCTAssertEqual(s.pendingCelebrations, [.hatch(shiny: s.currentIsShiny, rarity: r)])
             XCTAssertTrue(s.hasPendingHatch)
+            XCTAssertFalse(s.hasPendingEvolve)
         }
     }
 
@@ -162,7 +202,7 @@ final class CelebrationQueueTests: XCTestCase {
         tick(s, tokens: 0)
         for _ in 0..<200 where s.currentLine == nil { await Task.yield() }
         s.applyUsage(s.threshold)
-        XCTAssertEqual(s.pendingCelebrations, [.evolve])
+        XCTAssertEqual(s.pendingCelebrations, [.evolve(fromID: 1, toID: 2, shiny: false, form: nil)])
         XCTAssertTrue(s.buyFreshEgg())
         XCTAssertTrue(s.pendingCelebrations.isEmpty)
     }
@@ -200,8 +240,9 @@ final class CelebrationQueueTests: XCTestCase {
         XCTAssertEqual(s.pendingCelebrations, [.graduate(speciesID: 413, shiny: true, form: PokemonForm("sandy"))])
     }
 
-    /// 졸업은 앞서 대기 중인 진화를 버린다 — 몬스터볼 연출이 최종 모습을 보여 준다.
-    func testGraduationDropsPendingEvolves() async {
+    /// 한 번의 갱신에서 진화 2회 + 졸업 — 단계마다 전·후 종을 실은 진화가 순서대로, 졸업이 마지막.
+    /// (진화를 합치지 않는다 — 사용자 결정. 상한 6 이 이 묶음을 다 담는다.)
+    func testChainedEvolutionsAndGraduationQueueInOrder() async {
         let s = store(linear(1, count: 3))
         await s.hatch(baseID: 1)
         let shiny = s.currentIsShiny
@@ -209,7 +250,13 @@ final class CelebrationQueueTests: XCTestCase {
         XCTAssertFalse(s.hasPendingHatch)
         s.applyUsage(10_000_000_000)
         XCTAssertNil(s.state.active)
-        XCTAssertEqual(s.pendingCelebrations, [.graduate(speciesID: 3, shiny: shiny, form: nil)])
+        XCTAssertEqual(s.pendingCelebrations, [
+            .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil),
+            .evolve(fromID: 2, toID: 3, shiny: shiny, form: nil),
+            .graduate(speciesID: 3, shiny: shiny, form: nil),
+        ])
+        XCTAssertTrue(s.hasPendingEvolve)
+        XCTAssertFalse(s.hasPendingHatch)
     }
 
     /// 부화 이월로 진화·졸업까지 가면: 이월 진화는 버리고(부화 공개가 덮는다) 부화 → 졸업.
@@ -228,12 +275,13 @@ final class CelebrationQueueTests: XCTestCase {
     func testQueueCapDropsTheOldestCelebrations() async {
         let s = store(linear(1, count: 9))
         await s.hatch(baseID: 1)
-        let thresholds = (0..<5).map { _ -> Int in let t = s.threshold; s.applyUsage(t); return t }
-        XCTAssertEqual(thresholds.count, 5)
-        XCTAssertEqual(s.state.active?.stageIndex, 5)
+        s.applyUsage(1_000_000_000_000)   // 진화 8 + 졸업 1 (+ 앞의 부화 1) = 10
+        XCTAssertNil(s.state.active)
         XCTAssertEqual(s.pendingCelebrations.count, CompanionStore.celebrationQueueCap)
-        XCTAssertEqual(s.pendingCelebrations, Array(repeating: .evolve, count: CompanionStore.celebrationQueueCap),
-                       "가장 오래된 부화가 밀려난다")
+        XCTAssertEqual(s.pendingCelebrations.last, .graduate(speciesID: 9, shiny: s.state.dex[0].isShiny, form: nil))
+        XCTAssertEqual(s.pendingCelebrations.first,
+                       .evolve(fromID: 4, toID: 5, shiny: s.state.dex[0].isShiny, form: nil))
+        XCTAssertGreaterThanOrEqual(CompanionStore.celebrationQueueCap, 3, "진화 2회 + 졸업이 한 번에 들어가야 한다")
     }
 
     /// 꺼낸 연출은 다시 나오지 않는다(팝오버 재오픈·헤더 재마운트에도 1회).
@@ -249,6 +297,15 @@ final class CelebrationQueueTests: XCTestCase {
         XCTAssertFalse(s.hasPendingHatch)
         XCTAssertEqual(s.celebrationSeq, seq, "꺼내기는 새 연출 신호가 아니다")
     }
+
+    func testLineSpeciesNameNamesTheOldStageForTheEvolveCaption() async {
+        let s = store(linear(1, count: 3))
+        XCTAssertNil(s.lineSpeciesName(1, form: nil), "라인 없음")
+        await s.hatch(baseID: 1)
+        s.setLanguage(.en)
+        XCTAssertEqual(s.lineSpeciesName(2, form: nil), "P2")
+        XCTAssertNil(s.lineSpeciesName(99, form: nil), "라인 밖 종")
+    }
 }
 
 // MARK: 칸의 "직전 모습"(순수)
@@ -262,7 +319,9 @@ final class CelebrationSpriteBeforeTests: XCTestCase {
         XCTAssertEqual(CompanionHeader.spriteBefore(.dittoReveal(shiny: true), current: current), current)
         XCTAssertEqual(CompanionHeader.spriteBefore(.hatch(shiny: true, rarity: .rare), current: current),
                        Sprite(speciesID: nil), "부화 전엔 알")
-        XCTAssertEqual(CompanionHeader.spriteBefore(.evolve, current: current), current)
+        XCTAssertEqual(CompanionHeader.spriteBefore(.evolve(fromID: 1, toID: 2, shiny: true, form: PokemonForm("sandy")),
+                                                    current: current),
+                       Sprite(speciesID: 1, shiny: true, form: PokemonForm("sandy")), "진화 전엔 옛 모습")
         XCTAssertEqual(CompanionHeader.spriteBefore(.graduate(speciesID: 9, shiny: false, form: nil), current: current),
                        Sprite(speciesID: 9), "졸업 전엔 졸업하는 포켓몬")
     }

@@ -28,9 +28,11 @@ final class CompanionStore {
     /// `hatch.rarity` 는 알이 깨지는 연출의 등급 신호다. 위장 메타몽이면 **위장 라인의 등급**을 싣는다
     /// (이름·배지와 같은 값 — 연출이 정체를 먼저 누설하면 안 된다). `graduate` 는 졸업 직전의 최종 종을
     /// 싣는다 — 연출이 재생될 땐 `state.active` 가 이미 새 알이라 상태에서 다시 읽을 수 없다.
+    /// `evolve` 도 같은 이유로 진화 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다).
+    /// `form` 은 개체의 형태 그대로다 — 종마다 `PokemonForm.resolved` 로 풀리는 건 SpriteView 가 한다.
     enum Celebration: Equatable {
         case hatch(shiny: Bool, rarity: Rarity)
-        case evolve
+        case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?)
         case dittoReveal(shiny: Bool)
         case graduate(speciesID: Int, shiny: Bool, form: PokemonForm?)
     }
@@ -39,7 +41,9 @@ final class CompanionStore {
     private(set) var pendingCelebrations: [Celebration] = []
     /// 큐 상한 — 팝오버를 오래 닫아 둔 사이 쌓인 연출을 전부 재생하면 열자마자 수십 초가 묶인다.
     /// 넘치면 **오래된 것부터** 버린다: 남는 쪽이 지금 화면 상태와 이어지는 최근 사건이다.
-    static let celebrationQueueCap = 4
+    /// 6 = 한 번의 갱신이 낼 수 있는 최장 묶음(3단 라인의 진화 2회 + 졸업 = 3)을 다 담고도 여유가 있는 값.
+    /// 진화는 단계마다 따로 재생한다(합치지 않는다 — 중간 모습도 한 번씩 보여 준다는 사용자 결정).
+    static let celebrationQueueCap = 6
     private(set) var celebrationSeq = 0
     /// 다음에 재생될 연출(없으면 nil).
     var celebration: Celebration? { pendingCelebrations.first }
@@ -47,6 +51,17 @@ final class CompanionStore {
     /// 이름·등급·진화 라인을 가린다(연출보다 먼저 정보 칸이 결과를 말해 버리면 연출이 의미 없다).
     var hasPendingHatch: Bool {
         pendingCelebrations.contains { if case .hatch = $0 { true } else { false } }
+    }
+    /// 재생 대기 중인 진화가 있는가 — 부화와 같은 이유로 헤더가 새 단계의 정보를 가린다.
+    var hasPendingEvolve: Bool {
+        pendingCelebrations.contains { if case .evolve = $0 { true } else { false } }
+    }
+    /// 현재 라인 안의 종 이름(형태 반영). 라인이 없거나(졸업 직후) 라인 밖 종이면 nil.
+    /// 진화 연출 동안 헤더가 옛 단계의 이름을 보여 주는 데 쓴다.
+    func lineSpeciesName(_ speciesID: Int, form: PokemonForm?) -> String? {
+        guard let line = currentLine, line.names[speciesID] != nil else { return nil }
+        return formDisplayName(line.localizedName(speciesID, state.language), speciesID: speciesID,
+                               form: PokemonForm.resolved(speciesID: speciesID, form: form))
     }
     private func fireCelebration(_ c: Celebration) {
         pendingCelebrations.append(c)
@@ -1076,7 +1091,8 @@ final class CompanionStore {
                 let newName = formDisplayName(line.localizedName(next.speciesID, state.language),
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
-                fireCelebration(.evolve)
+                fireCelebration(.evolve(fromID: a.currentID, toID: next.speciesID,
+                                        shiny: a.displaysShiny, form: a.form))
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
@@ -1168,9 +1184,8 @@ final class CompanionStore {
                                    speciesID: finalID, form: a.form)
         justGraduated = name
         // 졸업 연출은 지금 개체로 그려야 한다 — 아래에서 active 를 비우면 다시 읽을 수 없다.
-        // 대기 중인 진화 연출은 버린다: 몬스터볼 연출이 최종 모습을 보여 주므로, 남겨 두면 이미 알이
-        // 된 칸에서 진화 플래시가 뒤늦게 터진다.
-        pendingCelebrations.removeAll { $0 == .evolve }
+        // 앞서 대기 중인 진화는 그대로 둔다: 진화 연출이 전·후 종을 직접 싣고 있어 칸이 이미 알이어도
+        // 그릴 수 있다 — 같은 갱신의 진화 → 졸업이 순서대로 다 재생된다.
         fireCelebration(.graduate(speciesID: finalID, shiny: a.displaysShiny,
                                   form: PokemonForm.resolved(speciesID: finalID, form: a.form)))
         notifyCompanionEvent(l.notifGraduateTitle, l.notifGraduateBody(name))
@@ -1858,7 +1873,9 @@ final class CompanionStore {
         // 모습을 보여 주므로 진화 플래시가 부화 연출을 덮을 뿐이다. 이월로 즉시 졸업했으면
         // 부화 → 졸업 순으로 둘 다 재생한다(부화를 건너뛰면 알이 깨지는 순간 없이 도감행이 된다).
         let overflowCount = min(celebrationSeq - seqBeforeOverflow, pendingCelebrations.count)
-        let overflowCelebrations = pendingCelebrations.suffix(overflowCount).filter { $0 != .evolve }
+        let overflowCelebrations = pendingCelebrations.suffix(overflowCount).filter {
+            if case .evolve = $0 { false } else { true }
+        }
         pendingCelebrations.removeLast(overflowCount)
         fireCelebration(.hatch(shiny: showShiny, rarity: line.rarity))
         overflowCelebrations.forEach(fireCelebration)

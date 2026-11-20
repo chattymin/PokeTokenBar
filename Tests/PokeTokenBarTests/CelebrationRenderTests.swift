@@ -101,7 +101,7 @@ final class CelebrationRenderTests: XCTestCase {
     }
 
     /// `ImageRenderer`, not `cacheDisplay`: the latter drops layer filters (`brightness`, `colorMultiply`),
-    /// so the red Poké Ball tint would silently vanish from the frames.
+    /// so the white evolution silhouette and the red Poké Ball tint would silently vanish from the frames.
     private func snapshot(_ view: some View, width: CGFloat, height: CGFloat) throws -> CGImage {
         let renderer = ImageRenderer(content: view.frame(width: width, height: height)
             .environment(\.colorScheme, .light))
@@ -175,6 +175,21 @@ final class CelebrationRenderTests: XCTestCase {
                         self.fitted(s.egg)
                     } hatchling: { self.fitted(mon) })
                 }
+            }
+        }
+    }
+
+    func testWriteEvolution() async throws {
+        let dir = try outputDirectory()
+        let s = try await sprites([4, 5])
+        let from = try XCTUnwrap(s.mons[4]), to = try XCTUnwrap(s.mons[5])
+        for reduce in [false, true] {
+            let reveal = EvolutionEffect.revealTime(reduceMotion: reduce)
+            let duration = EvolutionEffect.duration(reduceMotion: reduce)
+            let times: [TimeInterval] = reduce ? [0, 0.25, reveal, reveal + 0.2, duration]
+                : [0, 0.25, 0.4, 0.65, 0.9, 1.2, 1.5, 1.7, reveal, reveal + 0.15, reveal + 0.4, duration]
+            try render(name: "evolve\(reduce ? "-reduced" : "")", duration: duration, strip: times, into: dir) { t in
+                AnyView(EvolutionEffectView(elapsed: t, reduceMotion: reduce) { self.fitted(from) } to: { self.fitted(to) })
             }
         }
     }

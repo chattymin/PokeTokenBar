@@ -873,8 +873,9 @@ struct CompanionHeader: View {
     private struct PlayingCelebration: Equatable {
         enum Kind: Equatable {
             case hatch(HatchEffect.Profile, reveal: CelebrationSprite)
+            case evolve(from: CelebrationSprite, to: CelebrationSprite)
             case graduate(CelebrationSprite)
-            /// 진화·메타몽 리빌 — 기존 플래시·팝(·🎭)을 평소 스프라이트 위에(칸 내용은 그대로).
+            /// 메타몽 리빌 — 기존 플래시·팝·🎭 를 평소 스프라이트 위에(칸 내용은 그대로).
             case overlay
         }
         let serial: Int
@@ -892,8 +893,9 @@ struct CompanionHeader: View {
                                          current: CelebrationSprite) -> CelebrationSprite {
         switch c {
         case .hatch?: return CelebrationSprite(speciesID: nil)
+        case .evolve(let from, _, let shiny, let form)?: return CelebrationSprite(speciesID: from, shiny: shiny, form: form)
         case .graduate(let id, let shiny, let form)?: return CelebrationSprite(speciesID: id, shiny: shiny, form: form)
-        case .evolve?, .dittoReveal?, nil: return current
+        case .dittoReveal?, nil: return current
         }
     }
 
@@ -917,6 +919,8 @@ struct CompanionHeader: View {
                     HatchEffectView(profile: profile, elapsed: t, reduceMotion: reduceMotion) {
                         sprite(CelebrationSprite(speciesID: nil))
                     } hatchling: { sprite(reveal) }
+                case .evolve(let from, let to):
+                    EvolutionEffectView(elapsed: t, reduceMotion: reduceMotion) { sprite(from) } to: { sprite(to) }
                 case .graduate(let mon):
                     GraduationEffectView(elapsed: t, reduceMotion: reduceMotion) { sprite(mon) } egg: {
                         sprite(CelebrationSprite(speciesID: nil))
@@ -930,15 +934,17 @@ struct CompanionHeader: View {
         }
     }
 
-    /// 정보 칸을 가리는 이유 — 부화(알 문구). nil = 가리지 않음.
-    private enum Concealment: Equatable { case egg }
+    /// 정보 칸을 가리는 이유 — 부화(알 문구) 또는 진화(옛 단계 이름). nil = 가리지 않음.
+    private enum Concealment: Equatable { case egg, evolving(fromID: Int, form: PokemonForm?) }
 
     private var concealment: Concealment? {
         if concealUntilReveal, let p = playing {
             if case .hatch = p.kind { return .egg }
+            if case .evolve(let from, _) = p.kind, let id = from.speciesID { return .evolving(fromID: id, form: from.form) }
         }
         for c in store.pendingCelebrations {
             if case .hatch = c { return .egg }
+            if case .evolve(let from, _, _, let form) = c { return .evolving(fromID: from, form: form) }
         }
         return nil
     }
@@ -948,6 +954,10 @@ struct CompanionHeader: View {
         switch concealment {
         case .egg?:
             Text(store.l.eggImminent).font(.caption.weight(.semibold)).foregroundStyle(.orange)
+        case .evolving(let id, let form)?:
+            if let name = store.lineSpeciesName(id, form: form) {
+                Text(name).font(.callout.weight(.semibold))
+            }
         case nil:
             EmptyView()
         }
@@ -968,14 +978,14 @@ struct CompanionHeader: View {
                     speciesID: reveal.speciesID, shiny: reveal.shiny, form: reveal.form)),
                 start: now, revealAt: HatchEffect.revealTime(profile, reduceMotion: reduceMotion),
                 duration: HatchEffect.duration(profile, reduceMotion: reduceMotion), shinyBurst: shiny)
-        case .evolve:
-            // 진화 — 흰 플래시 페이드아웃 + 스프링 팝(본가 진화 신 오마주).
-            flashOpacity = 0.85
-            celebScale = 0.6
-            withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
-            withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
-            playing = PlayingCelebration(serial: playSerial, kind: .overlay, start: now, revealAt: nil,
-                                         duration: 0.9, shinyBurst: false)
+        case .evolve(let fromID, let toID, let shiny, let form):
+            concealUntilReveal = true
+            playing = PlayingCelebration(
+                serial: playSerial,
+                kind: .evolve(from: CelebrationSprite(speciesID: fromID, shiny: shiny, form: form),
+                              to: CelebrationSprite(speciesID: toID, shiny: shiny, form: form)),
+                start: now, revealAt: EvolutionEffect.revealTime(reduceMotion: reduceMotion),
+                duration: EvolutionEffect.duration(reduceMotion: reduceMotion), shinyBurst: false)
         case .graduate(let id, let shiny, let form):
             playing = PlayingCelebration(
                 serial: playSerial, kind: .graduate(CelebrationSprite(speciesID: id, shiny: shiny, form: form)),
