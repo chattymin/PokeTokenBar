@@ -265,6 +265,11 @@ struct CapsuleScreen: View {
             Text(kind == .mint ? entry.nature.map { $0.name(store.language) } ?? "?" : "\(total(entry))/186")
                 .font(.caption2).foregroundStyle(maxed ? .tertiary : .secondary).monospacedDigit().lineLimit(1)
                 .minimumScaleFactor(0.8)
+            // A Capsule's IV is picked knowing the nature it plays with (the owner, 2026-11-20).
+            if kind != .mint, let nature = entry.nature {
+                Text(nature.name(store.language))
+                    .font(.caption2).foregroundStyle(.tertiary).lineLimit(1).minimumScaleFactor(0.8)
+            }
         }
         .frame(maxWidth: .infinity)
         .padding(.vertical, 4)
@@ -285,6 +290,10 @@ struct CapsuleScreen: View {
             VStack(alignment: .leading, spacing: 2) {
                 PokemonNameLabel(.pokemonSpecies, String(entry.finalID), language: store.language).font(.headline)
                 Text("IV \(total(entry))/186").font(.caption).foregroundStyle(.secondary).monospacedDigit()
+                if let nature = entry.nature {
+                    Text("\(nature.name(store.language)) · \(Self.effect(of: nature, l))")
+                        .font(.caption).foregroundStyle(.secondary).lineLimit(1).minimumScaleFactor(0.8)
+                }
             }
         }
         let left = store.itemCount(kind) > 0
