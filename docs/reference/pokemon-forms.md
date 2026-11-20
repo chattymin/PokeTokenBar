@@ -1,5 +1,5 @@
 ---
-summary: "Collectible alternate forms (Unown letters, Rotom, Arceus…): catalog, draw, Pokédex, save keys and sprite names."
+summary: "Collectible alternate forms (Unown letters, Rotom, Arceus, Gigantamax…): catalog, draw, Pokédex, save keys and sprite names."
 read_when:
   - adding or removing a species' forms, or touching form sprites and their cache keys
   - changing how an individual's form is drawn, saved, imported or displayed
@@ -8,8 +8,9 @@ read_when:
 # Pokémon forms
 
 Species from generations 1 to 5 with alternate forms are collectible when the
-PokeAPI sprites repository has an animated Black/White GIF for every form. The
-catalog lives in `PokemonForm.catalog`, default form first:
+PokeAPI sprites repository has an animated GIF for every form: Black/White for
+regular forms, Showdown for Gigantamax. The catalog lives in
+`PokemonForm.catalog`, default form first:
 
 | Species | Forms |
 | --- | --- |
@@ -31,11 +32,13 @@ catalog lives in `PokemonForm.catalog`, default form first:
 | Keldeo #647 | ordinary, resolute |
 | Meloetta #648 | aria, pirouette |
 | Genesect #649 | normal, douse, shock, burn, chill |
+| Venusaur #3, Charizard #6, Blastoise #9, Butterfree #12, Pikachu #25, Meowth #52, Machamp #68, Gengar #94, Kingler #99, Lapras #131, Eevee #133, Snorlax #143, Garbodor #569 | normal, gmax (a rare factor, see [Gigantamax](#gigantamax)) |
 
 Left out on purpose: spiky-eared Pichu and Arceus `unknown` (no animated GIF),
 gender differences such as female Frillish (not forms), Mothim's cloaks (same
-sprite), and forms that only have static sprites (regional forms, Mega and
-Gigantamax, cap Pikachu, white-striped Basculin, Origin Dialga and Palkia).
+sprite), Mega Evolution (a separate mechanic, outside the form catalog), and
+forms that only have static sprites (regional forms, cap Pikachu, white-striped
+Basculin, Origin Dialga and Palkia).
 
 ## Drawing a form
 
@@ -52,7 +55,45 @@ uncollected form has weight 2 and each collected form has weight 1. Ownership
 includes active and recorded Pokémon, regardless of shiny color. In lines where
 several species show the form, it counts as collected only once every one of
 them is owned in it. There is no duplicate streak counter or guaranteed new
-form, and the draw does not change species weights or shiny odds.
+form, and the draw does not change species weights or shiny odds. Factor forms
+(Gigantamax) are the exception: they have their own odds, described below.
+
+## Gigantamax
+
+The 13 Gen 1–5 species with a Gigantamax form carry it as a rare trait of the
+individual, like the Gigantamax Factor (`isFactor` on the catalog entry). The
+line's form draw uses one random value: `roll % n == 0` gives the factor, and
+otherwise `roll / n` makes the usual weighted draw among the other forms. `n`
+favors what the player does not have yet, like the collection weighting: 8
+(`uncollectedFactorDenominator`) while the line's Gigantamax form is not
+collected, 16 (`collectedFactorDenominator`) once it is. "Collected" is the same
+line notion as the regular draw (`collectedLineForms`: active or recorded, any
+shiny color). Both odds are rarer than a regular form and more common than a
+shiny (1/64).
+
+The trait is drawn for the whole line at its hatch base, the species PokéAPI
+lists without `evolves_from`: a Gigantamax Charmander and Charmeleon look as
+usual and the Charizard they become shows the Gigantamax form. Pichu eggs carry
+it for Pikachu (Raichu has a single look), Munchlax eggs for Snorlax, and
+Meowth, Lapras and Eevee hatch as themselves; Eevee's evolutions look as usual.
+
+Gen V has no Gigantamax animation, so its GIFs come from Showdown
+(`AnimatedSource.showdown`): `other/showdown/<variety id>.gif`, with `shiny/`,
+`back/` and `back/shiny/` beside it. Venusaur (10195) and Blastoise (10197)
+have no back GIF; the 404 back-to-front fallback shows their front. Showdown
+GIFs are rendered models of up to about 216×211 px (Charizard 163×150, its back
+216×211) with 100–160 frames at 0.03 s per frame, about 0.25–0.85 MB each,
+against 72 frames and about 80 KB for a Black/White GIF. Every sprite view
+aspect-fits the image to its box, so they draw at the same size as other
+Pokémon; nothing assumes a 96 px canvas. The always-visible menu bar and
+floating pet thin the frames with their existing frame floor
+(`GIFDecoder.capFrameRate`), while the popover and Pokédex detail play them at
+full rate.
+
+PokéAPI only names Gigantamax forms in English, Japanese, French and German, so
+the app labels them itself ("거다이맥스의 모습", "Gigantamax Form") and does not
+fetch them. These species' usual looks have no PokéAPI name at all and use the
+localized "Normal Form".
 
 ## Pokédex
 
@@ -65,8 +106,9 @@ not increase completion.
 
 Labels come from PokéAPI `pokemon-form` `form_names` (30-day cache), with the
 identifier shown until they load. Unown shows its letter. Castform, Rotom,
-Kyurem and Genesect have no official name for their usual look, so it is shown
-as the app's localized "Normal Form". The companion's title, the form picker
+Kyurem, Genesect and the Gigantamax species have no official name for their
+usual look, so it is shown as the app's localized "Normal Form". Gigantamax uses
+an app-localized label (`AppLabel`). The companion's title, the form picker
 and the hatch, evolution and graduation messages add a `[form]` suffix to
 non-default forms. Labels one thumbnail wide (capture log, recap chips) only
 keep Unown's letter; their sprite already shows the form. Names are loaded with
@@ -88,6 +130,9 @@ are PokeAPI form identifiers (`sky`, `blue-striped`, `exclamation`…). The form
 Unown keys `unownForm`, `pendingUnownForm` and `representativeUnownForm` are
 still read. A form that does not belong to the line falls back to its default,
 so older Unown records without a letter keep their A appearance.
+An egg prepared before Gigantamax was added already stores its line's default
+form (or none), so it hatches with that default and cannot become Gigantamax,
+like other records written before their line had forms.
 
 Downgrading loses forms: older versions only read the former Unown keys, so
 their Unown individuals fall back to A and other forms are dropped when they
@@ -99,4 +144,6 @@ Animated GIFs and cache keys use `<id>-<form>` (`492-sky.gif`,
 `201-question.gif`), and the default form keeps the plain `<id>` names. Static
 PNGs use the PokeAPI Pokémon ID for forms that are separate Pokémon
 (`10006.png` for Sky Shaymin) and `<id>-<form>` for cosmetic forms
-(`412-sandy.png`).
+(`412-sandy.png`). Gigantamax GIFs are the exception: Showdown names them by the
+Pokémon ID (`other/showdown/10196.gif`), while their cache keys keep the
+`<id>-<form>` form (`6-gmax-sha`).

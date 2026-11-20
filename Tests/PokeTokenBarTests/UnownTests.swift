@@ -113,22 +113,22 @@ final class UnownTests: XCTestCase {
     func testAllLettersAndPunctuationAreSelectable() {
         let symbols = Array("ABCDEFGHIJKLMNOPQRSTUVWXYZ").map(String.init) + ["!", "?"]
         XCTAssertEqual(PokemonForm.unownLetters.map(\.symbol), symbols)
-        XCTAssertEqual((0..<56).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, collected: []).symbol },
+        XCTAssertEqual((0..<56).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, factors: [], collected: []).symbol },
                        symbols.flatMap { [$0, $0] })
-        XCTAssertEqual(PokemonForm.roll(56, among: PokemonForm.unownLetters, collected: []), .a)
-        XCTAssertTrue(PokemonForm.unownLetters.contains(PokemonForm.roll(UInt64.max, among: PokemonForm.unownLetters, collected: [])))
+        XCTAssertEqual(PokemonForm.roll(56, among: PokemonForm.unownLetters, factors: [], collected: []), .a)
+        XCTAssertTrue(PokemonForm.unownLetters.contains(PokemonForm.roll(UInt64.max, among: PokemonForm.unownLetters, factors: [], collected: [])))
     }
 
     func testFormWeightsAreTwoForMissingAndOneForCollectedWithoutGuaranteeingNewForms() {
         for collected in [Set<PokemonForm>(), [.a, .b, .exclamation], Set(PokemonForm.unownLetters)] {
             let total = 56 - collected.count
-            let samples = (0..<total).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, collected: collected) }
+            let samples = (0..<total).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, factors: [], collected: collected) }
             for form in PokemonForm.unownLetters {
                 XCTAssertEqual(samples.filter { $0 == form }.count, collected.contains(form) ? 1 : 2)
             }
-            XCTAssertEqual(PokemonForm.roll(UInt64(total), among: PokemonForm.unownLetters, collected: collected), .a)
+            XCTAssertEqual(PokemonForm.roll(UInt64(total), among: PokemonForm.unownLetters, factors: [], collected: collected), .a)
         }
-        XCTAssertEqual((0..<28).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, collected: Set(PokemonForm.unownLetters)) },
+        XCTAssertEqual((0..<28).map { PokemonForm.roll(UInt64($0), among: PokemonForm.unownLetters, factors: [], collected: Set(PokemonForm.unownLetters)) },
                        PokemonForm.unownLetters, "Completion returns selection to uniform weights")
     }
 
@@ -357,6 +357,7 @@ final class UnownTests: XCTestCase {
     }
 
     /// 다른 종에는 추가 폼 롤이 없어야 이후 민트 등 기존 난수 결과도 바뀌지 않는다.
+    /// Pidgey: a line with a single look (Pikachu now has a Gigantamax form).
     func testNonUnownHatchDoesNotConsumeAnExtraRandomDraw() async throws {
         var original = CompanionState()
         original.inventory = ["mint": 1]
@@ -368,7 +369,7 @@ final class UnownTests: XCTestCase {
         let mintPool = PokemonNature.allCases.filter { $0 != nature }
         let nextNature = mintPool[Int(rng.next() % UInt64(mintPool.count))]
 
-        await s.hatch(baseID: 25)
+        await s.hatch(baseID: 16)
         XCTAssertNil(s.currentForm)
         XCTAssertEqual(s.currentIsShiny, shiny)
         XCTAssertEqual(s.currentNature, nature)

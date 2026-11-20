@@ -88,7 +88,7 @@ final class SaveSnapshotTests: XCTestCase {
             ("invalid", 492, "future", "form", PokemonForm("land")),
             ("unown", 201, "b", "unownForm", PokemonForm("b")),
             ("precursor", 420, "sunshine", "form", nil),
-            ("single", 25, "future", "form", nil),
+            ("single", 16, "future", "form", nil),
         ]
         for fixture in cases {
             let url = tempURL("form-\(fixture.name)")

@@ -2097,8 +2097,9 @@ private struct DexSpeciesCell: View {
             VStack(spacing: 1) {
                 // 이로치를 잡은 종은 이로치 스프라이트로 표시한다(상세 화면에서 일반/이로치 모습 전환 가능).
                 // 폼이 있는 종의 아이콘은 기본 폼 일반색으로 유지하고, 폼별 색은 상세 화면에서 보여준다.
+                // 거다이맥스만 추가된 종은 예외 — 규칙은 `dexThumbnailIsShiny` 한 곳에.
                 SpriteView(speciesID: species.id, size: Self.thumb,
-                           shiny: formCount == nil && species.isShiny)
+                           shiny: store.dexThumbnailIsShiny(species))
                     .frame(width: Self.thumb, height: Self.thumb)
                     // Keep the raising badge over the sprite to leave room for the name.
                     .overlay(alignment: .bottom) {

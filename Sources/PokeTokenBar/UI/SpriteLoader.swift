@@ -31,13 +31,14 @@ actor SpriteStore {
     }
 
     /// PokeAPI names form GIFs `201-b`/`492-sky`; static PNGs of separate varieties use the variety
-    /// id (`10006.png`). Cache files keep the `<id>-<form>` name either way.
+    /// id (`10006.png`), and so do Gigantamax GIFs, which only Showdown has (`other/showdown/10196.gif`).
+    /// Cache files keep the `<id>-<form>` name either way.
     /// Back sprites sit in a `back/` folder in front of `shiny/`, for both GIFs and PNGs.
     static func spriteURL(speciesID: Int, animated: Bool, shiny: Bool, form: PokemonForm? = nil,
                           back: Bool = false) -> URL {
-        let name = animated ? PokemonForm.assetName(speciesID: speciesID, form: form)
-                            : PokemonForm.staticAssetName(speciesID: speciesID, form: form)
-        let path = animated ? "versions/generation-v/black-white/animated/" : ""
+        let gif = PokemonForm.animatedAsset(speciesID: speciesID, form: form)
+        let name = animated ? gif.name : PokemonForm.staticAssetName(speciesID: speciesID, form: form)
+        let path = animated ? gif.folder : ""
         let facing = back ? "back/" : ""
         let color = shiny ? "shiny/" : ""
         let ext = animated ? "gif" : "png"

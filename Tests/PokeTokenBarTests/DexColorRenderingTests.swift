@@ -24,10 +24,10 @@ final class DexColorRenderingTests: XCTestCase {
         return image
     }
 
-    private func withSprites(_ body: () throws -> Void) throws {
+    private func withSprites(speciesID: Int = 606, _ body: () throws -> Void) throws {
         let keys = [false, true].map {
             SpriteLoader.cacheDir.appendingPathComponent(
-                SpriteStore.cacheKey(speciesID: 606, animated: false, shiny: $0) + ".png").path as NSString
+                SpriteStore.cacheKey(speciesID: speciesID, animated: false, shiny: $0) + ".png").path as NSString
         }
         let previous = keys.map { SpriteLoader.imageCache.object(forKey: $0) }
         for (key, color) in zip(keys, [NSColor.red, NSColor.blue]) {
@@ -51,19 +51,6 @@ final class DexColorRenderingTests: XCTestCase {
                      caughtAt: Date(timeIntervalSince1970: 1_700_000_000 + Double(index)),
                      isShiny: shiny, names: [606: ["en": "Elgyem"]])
         }
-        try JSONEncoder().encode(state).write(to: file)
-        return (CompanionStore(provider: ColorRenderingProvider(), fileURL: file), file)
-    }
-
-    private func fixture(onlyShiny: Bool) throws -> (CompanionStore, URL) {
-        let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-color-\(UUID()).json")
-        var state = CompanionState()
-        state.language = .en
-        state.dex = [
-            DexEntry(baseID: 606, finalID: 606, chainOrder: [606], rarity: .common,
-                     caughtAt: Date(timeIntervalSince1970: 1_700_000_000),
-                     isShiny: onlyShiny, names: [606: ["en": "Elgyem"]])
-        ]
         try JSONEncoder().encode(state).write(to: file)
         return (CompanionStore(provider: ColorRenderingProvider(), fileURL: file), file)
     }
@@ -218,43 +205,78 @@ final class DexColorRenderingTests: XCTestCase {
         }
     }
 
+    /// Renders the main Pokédex grid of `dex` and returns its normal and shiny pixel rows.
+    private func gridColorRows(_ dex: [DexEntry]) throws -> (normal: [Int], shiny: [Int]) {
+        let file = FileManager.default.temporaryDirectory.appendingPathComponent("dex-color-\(UUID()).json")
+        defer { try? FileManager.default.removeItem(at: file) }
+        var state = CompanionState()
+        state.language = .en
+        state.dex = dex
+        try JSONEncoder().encode(state).write(to: file)
+        let store = CompanionStore(provider: ColorRenderingProvider(), fileURL: file)
+        let navigation = PopoverNavigation()
+        navigation.showingCollectionLog = false
+        let view = CollectionView(store: store, navigation: navigation)
+            .frame(width: PopoverMetrics.contentWidth, height: 520)
+            .background(Color.white)
+            .environment(\.colorScheme, .light)
+            .environment(\.locale, store.language.displayLocale)
+        let host = NSHostingView(rootView: view)
+        host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.contentWidth, height: 520)
+        let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000,
+            width: PopoverMetrics.contentWidth, height: 520),
+            styleMask: .borderless, backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.appearance = NSAppearance(named: .aqua)
+        window.contentView = host
+        window.orderFront(nil)
+        defer { window.close() }
+        host.layoutSubtreeIfNeeded()
+        RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
+        host.layoutSubtreeIfNeeded()
+        let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
+        host.cacheDisplay(in: host.bounds, to: bitmap)
+        return (colorRows(bitmap, shiny: false), colorRows(bitmap, shiny: true))
+    }
+
+    private func elgyem(shiny: Bool) -> DexEntry {
+        DexEntry(baseID: 606, finalID: 606, chainOrder: [606], rarity: .common,
+                 caughtAt: Date(timeIntervalSince1970: 1_700_000_000), isShiny: shiny,
+                 names: [606: ["en": "Elgyem"]])
+    }
+
     func testPokedexGridRendersShinySpeciesColor() throws {
         try withSprites {
             for shiny in [true, false] {
-                let (store, file) = try fixture(onlyShiny: shiny)
-                defer { try? FileManager.default.removeItem(at: file) }
-                let navigation = PopoverNavigation()
-                navigation.showingCollectionLog = false
-                let view = CollectionView(store: store, navigation: navigation)
-                    .frame(width: PopoverMetrics.contentWidth, height: 520)
-                    .background(Color.white)
-                    .environment(\.colorScheme, .light)
-                    .environment(\.locale, store.language.displayLocale)
-                let host = NSHostingView(rootView: view)
-                host.frame = NSRect(x: 0, y: 0, width: PopoverMetrics.contentWidth, height: 520)
-                let window = NSWindow(contentRect: NSRect(x: -10000, y: -10000,
-                    width: PopoverMetrics.contentWidth, height: 520),
-                    styleMask: .borderless, backing: .buffered, defer: false)
-                window.isReleasedWhenClosed = false
-                window.appearance = NSAppearance(named: .aqua)
-                window.contentView = host
-                window.orderFront(nil)
-                defer { window.close() }
-                host.layoutSubtreeIfNeeded()
-                RunLoop.current.run(until: Date(timeIntervalSinceNow: 0.1))
-                host.layoutSubtreeIfNeeded()
-                let bitmap = try XCTUnwrap(host.bitmapImageRepForCachingDisplay(in: host.bounds))
-                host.cacheDisplay(in: host.bounds, to: bitmap)
-                let normalRows = colorRows(bitmap, shiny: false)
-                let shinyRows = colorRows(bitmap, shiny: true)
+                let rows = try gridColorRows([elgyem(shiny: shiny)])
                 if shiny {
-                    XCTAssertGreaterThan(shinyRows.count, 20, "shiny species must render shiny pixels in Pokédex grid")
-                    XCTAssertEqual(normalRows.count, 0, "shiny species must not render normal pixels in Pokédex grid")
+                    XCTAssertGreaterThan(rows.shiny.count, 20, "shiny species must render shiny pixels in Pokédex grid")
+                    XCTAssertEqual(rows.normal.count, 0, "shiny species must not render normal pixels in Pokédex grid")
                 } else {
-                    XCTAssertGreaterThan(normalRows.count, 20, "normal species must render normal pixels in Pokédex grid")
-                    XCTAssertEqual(shinyRows.count, 0, "normal species must not render shiny pixels in Pokédex grid")
+                    XCTAssertGreaterThan(rows.normal.count, 20, "normal species must render normal pixels in Pokédex grid")
+                    XCTAssertEqual(rows.shiny.count, 0, "normal species must not render shiny pixels in Pokédex grid")
                 }
             }
+        }
+    }
+
+    /// Charizard gained a Gigantamax form but keeps its shiny thumbnail when its usual look is shiny;
+    /// a shiny owned only as Gigantamax leaves the usual look normal.
+    func testPokedexGridKeepsShinyThumbnailOfGigantamaxCapableSpecies() throws {
+        func charizard(_ form: PokemonForm, shiny: Bool) -> DexEntry {
+            DexEntry(baseID: 4, finalID: 6, chainOrder: [6], rarity: .common,
+                     caughtAt: Date(timeIntervalSince1970: 1_700_000_000), isShiny: shiny,
+                     names: [6: ["en": "Charizard"]], form: form)
+        }
+        try withSprites(speciesID: 6) {
+            let shinyUsual = try gridColorRows([charizard(PokemonForm("normal"), shiny: true)])
+            XCTAssertGreaterThan(shinyUsual.shiny.count, 20, "a shiny usual Charizard renders shiny in the grid")
+            XCTAssertEqual(shinyUsual.normal.count, 0)
+
+            let shinyOnlyGigantamax = try gridColorRows([charizard(PokemonForm("normal"), shiny: false),
+                                                         charizard(PokemonForm("gmax"), shiny: true)])
+            XCTAssertGreaterThan(shinyOnlyGigantamax.normal.count, 20, "the usual look stays normal")
+            XCTAssertEqual(shinyOnlyGigantamax.shiny.count, 0)
         }
     }
 }
