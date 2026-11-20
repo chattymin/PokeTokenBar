@@ -77,7 +77,7 @@ struct MyTeamScreen: View {
                 }
                 ScrollView {
                     TeamCandidateList(store: store, dungeon: nil, faced: [], rules: [], size: Self.size, query: search,
-                                      filter: favoritesOnly ? .favorite : nil, team: $team, focus: $focus)
+                                      filter: favoritesOnly ? .favorite : nil, region: .constant(nil), team: $team, focus: $focus)
                         .reservesScrollerLane()
                 }
                 .frame(minHeight: 46)
