@@ -660,6 +660,11 @@ extension DexEntryLink {
 }
 
 /// 팝오버 상단 — 현재 포켓몬 + 진화 진행 + 부화/진화 연출.
+///
+/// **Needs `.celebrationStageHost()` on an ancestor.** While a hatch/evolve sequence plays, the header
+/// removes its resting sprite and only *publishes* the sprite slot (`CelebrationStageAnchorKey`); the
+/// stage itself is drawn by the host, placed above any clipping ScrollView (`PopoverView.mainContent`).
+/// Without a host the sequence still runs and finishes, but nothing is drawn in the slot.
 @MainActor
 struct CompanionHeader: View {
     let store: CompanionStore
@@ -667,13 +672,18 @@ struct CompanionHeader: View {
     var onOpenDexEntry: ((String) -> Void)? = nil
     /// Injectable so render tests stay offline and away from the real sprite cache.
     var spriteStore: SpriteStore = .shared
-    // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
+    /// Plays the queued hatch/evolve sequences on the sprite. Injectable so render tests can freeze an
+    /// instant; nil = the header's own player.
+    var celebrationPlayer: CelebrationPlayer? = nil
+    @State private var ownPlayer = CelebrationPlayer()
+    /// Reduce Motion / Low Power, read when a sequence starts and for the egg's wobble. Injectable for tests.
+    var motion: @MainActor () -> MotionSettings = { .system }
+    // Ditto reveal — the one celebration without a stage sequence: white flash + 🎭 burst (+ ✨ if shiny).
     @State private var flashOpacity: Double = 0
-    @State private var celebScale: CGFloat = 1
-    @State private var shinyBurst = false
-    @State private var dittoBurst = false   // 메타몽 리빌 🎭 버스트
-    @State private var seenSeq = -1     // 재생 완료한 celebrationSeq (팝오버 재오픈 시 1회 재생 보장)
-    @State private var eggWiggle = false
+    @State private var dittoBurst = false
+    @State private var dittoShinyBurst = false
+    /// Bumped by the egg's wobble loop; every change plays one keyframe wobble (never a repeating animation).
+    @State private var eggWobbles = 0
     // 사탕 "+XP" 순간 표시 (진화 없이 부분 진행일 때도 피드백)
     @State private var seenCandySeq = -1
     @State private var candyXPShown = false
@@ -690,25 +700,55 @@ struct CompanionHeader: View {
         return "\(TokenFormatter.compact(used)) / \(TokenFormatter.compact(total)) · \(percent)%"
     }
 
-    /// 부화 임박(90%+) — 알이 흔들리고 문구가 바뀐다.
-    private var eggImminent: Bool { store.isEgg && store.eggProgress >= 0.9 }
+    /// The status line: the playing sequence's caption wins over the companion's state line.
+    nonisolated static func statusText(celebration: String?, fallback: String) -> String {
+        celebration ?? fallback
+    }
+
+    /// The "graduated" line under the header, hidden while popover sequences are pending: a catch-up of the
+    /// graduated companion's evolutions plays first, and the line would name its final form.
+    nonisolated static func graduationLine(_ graduated: String?, sequencesPending: Bool) -> String? {
+        sequencesPending ? nil : graduated
+    }
+
+    /// Pause between the resting egg's one-shot wobbles; nil = no wobble loop at all
+    /// (not an egg, early tier, Reduce Motion or Low Power).
+    nonisolated static func eggWobbleInterval(isEgg: Bool, progress: Double, motion: MotionSettings) -> Duration? {
+        guard isEgg, !motion.reduced else { return nil }
+        return EggIncubationTier.tier(progress: progress).wobbleInterval
+    }
+
+    private var player: CelebrationPlayer { celebrationPlayer ?? ownPlayer }
+
+    private var eggWobbleInterval: Duration? {
+        // The resting egg only: not while a queued sequence presents another subject in its place.
+        Self.eggWobbleInterval(isEgg: store.isEgg && store.celebrations.next(for: .popover) == nil,
+                               progress: store.eggProgress, motion: motion())
+    }
 
     var body: some View {
         // Computed once per render and shared by the big sprite and the evolution line.
         let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
+        let playing = player.item != nil
+        // Queue-aware: the playing item's source until its reveal, its result while a later item waits, and the
+        // next item's source between two items. nil = the live state.
+        let presentation = CelebrationPresentation.shown(queue: store.celebrations, playing: player.item,
+                                                         text: player.text, surface: .popover,
+                                                         liveSpeciesID: store.currentSpeciesID)
+        let caption = player.item.flatMap { store.l.celebrationText(player.text, kind: $0.kind) }
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny, spriteStore: spriteStore, form: store.currentForm,
-                           back: store.facesBack)
+                restingSprite(hidden: playing, presentation: presentation)
                     .frame(width: 76, height: 76)
-                    .background(Color.secondary.opacity(0.06))
-                    .clipShape(RoundedRectangle(cornerRadius: 12))
-                    .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
-                    .scaleEffect(celebScale)
+                    // The sequence takes the sprite's place, but is drawn by `celebrationStageHost()` above
+                    // the popover's ScrollView (which would clip its effects): the slot publishes its bounds
+                    // while playing, and the host grounds the stage on them, grown by its effects margin.
+                    .anchorPreference(key: CelebrationStageAnchorKey.self, value: .bounds) { [player, spriteStore] in
+                        playing ? CelebrationStageAnchor(slot: $0, player: player, spriteStore: spriteStore) : nil
+                    }
                     .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
                     .overlay(alignment: .topTrailing) {
-                        if shinyBurst {
+                        if dittoShinyBurst {
                             Text("✨").font(.system(size: 22))
                                 .transition(.scale.combined(with: .opacity))
                                 .offset(x: 6, y: -6)
@@ -742,88 +782,37 @@ struct CompanionHeader: View {
                         }
                     }
                     // Outermost, so the celebration overlays and animations above stay intact.
-                    // An egg has no species (nil) and therefore no link.
+                    // An egg has no species (nil) and therefore no link. No link while a sequence is pending
+                    // either: a click on the stage skips to the reveal instead of leaving Home.
                     .modifier(DexEntryLink(
-                        target: store.currentSpeciesID.flatMap { dexLinks[$0] },
-                        hint: store.l.dexOpenEntryHint, accessibilityName: store.displayName,
+                        target: playing || presentation != nil ? nil : store.currentSpeciesID.flatMap { dexLinks[$0] },
+                        hint: store.l.dexOpenEntryHint, accessibilityName: presentation?.name ?? store.displayName,
                         cornerRadius: 12, open: onOpenDexEntry))
                 VStack(alignment: .leading, spacing: 4) {
-                    HStack(spacing: 6) {
-                        Text(store.displayName).font(.callout.weight(.semibold))
-                        if store.currentIsShiny { Text("✨").font(.system(size: 11)) }
-                        if let r = store.rarity {
-                            Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
-                        }
-                    }
-                    if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
-                        TypeBadges(types: details.types, language: store.language)
-                        if !PokemonForm.isDefault(store.currentForm, speciesID: id) {
-                            Text(store.l.defaultFormDataNote)
-                                .font(.caption2).foregroundStyle(.secondary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
-                    }
-                    if store.hasActive {
-                        // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
-                        let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
-                        HStack(spacing: 5) {
-                            Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
-                            if let multiplier = store.growthMultiplier {
-                                Badge(store.l.growthBoost(multiplier), tint: .orange, style: .tinted)
-                                    .fixedSize()
-                            }
-                        }
-                        LabeledProgressBar(value: store.progress,
-                                           label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
-                                                                      total: store.threshold))
-                        if store.tokensToNext > 0 {
-                            let amount = TokenFormatter.compact(store.tokensToNext)
-                            Text(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
+                    if let presentation {
+                        pendingRevealColumn(presentation)
                     } else {
-                        // 알 인큐베이션 — 부화까지 진행 (임박 시 문구·색 전환)
-                        HStack(spacing: 6) {
-                            Text(eggImminent ? store.l.eggImminent : store.l.eggIncubating)
-                                .font(.caption2)
-                                .foregroundStyle(eggImminent ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
-                            // 등급 보증 알이면 무엇을 품고 있는지 — 도감 칩과 같은 라벨·색.
-                            // 알 스프라이트는 한 장뿐이라 등급 구분은 이 배지가 유일한 신호다.
-                            if let guarantee = store.eggGuarantee {
-                                Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
-                            }
-                        }
-                        LabeledProgressBar(value: store.eggProgress,
-                                           label: Self.progressDetail(used: store.state.eggUsage,
-                                                                      total: store.eggHatchThreshold))
-                        if store.isEgg, store.isHatchRetryDelayed {
-                            Text(store.l.eggHatchDelayed)
-                                .font(.caption2)
-                                .foregroundStyle(.orange)
-                                .fixedSize(horizontal: false, vertical: true)
-                        } else {
-                            Text(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
-                                .font(.caption2).foregroundStyle(.tertiary)
-                        }
-                        // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
-                        if !store.eggStarted {
-                            Text(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold)))
-                                .font(.caption2).foregroundStyle(.tertiary)
-                                .fixedSize(horizontal: false, vertical: true)
-                        }
+                        liveColumn
                     }
-                    Text(statusLine).font(.caption2).foregroundStyle(.secondary)
+                    Text(Self.statusText(celebration: caption, fallback: statusLine(presenting: presentation != nil)))
+                        .font(.caption2)
+                        .foregroundStyle(caption == nil ? AnyShapeStyle(.secondary) : AnyShapeStyle(.orange))
+                        // Wraps instead of truncating, so a long reveal keeps the new species' name.
+                        .fixedSize(horizontal: false, vertical: true)
                 }
                 Spacer()
             }
-            if store.hasActive, !store.lineNodes.isEmpty {
+            // While a subject is presented, the line as it was before that subject evolved.
+            let lineNodes = presentation.map { store.lineNodes(presenting: $0.speciesID) } ?? store.lineNodes
+            if store.hasActive, !lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
-                EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
+                EvoLineView(nodes: lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.scrollContentWidth, form: store.currentForm,
                             dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry, spriteStore: spriteStore)
             }
-            if let g = store.justGraduated {
+            if let g = Self.graduationLine(store.justGraduated,
+                                           sequencesPending: playing || store.celebrations.next(for: .popover) != nil) {
                 Text(store.l.graduated(g))
                     .font(.caption2).foregroundStyle(.orange)
             }
@@ -837,41 +826,206 @@ struct CompanionHeader: View {
             playCelebrationIfNeeded()
             showCandyXPIfNeeded()
             showMintIfNeeded()
-            syncEggWiggle()
         }
-        .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
+        // Not on screen any more (other tab, Settings, closed popover): the sequence stops unfinished here. It
+        // stays queued unless the floating pet, which plays it at the same time, reaches its end.
+        .onDisappear { stopPlayback() }
+        .onChange(of: store.celebrations.next(for: .popover)?.id) { playCelebrationIfNeeded() }
+        // Closed, display asleep or locked: the popover is not live. Stopped like a close, and started again
+        // (joining the pet if it still plays the item) once it is live again.
+        .onChange(of: store.popoverOpen) { _, open in if open { playCelebrationIfNeeded() } else { stopPlayback() } }
+        // A click on the pet skipped the shared item to its reveal: follow it, so both show the same phase.
+        .onChange(of: store.celebrationPlayback?.startedAt) { followSharedStart() }
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
-        .onChange(of: eggImminent) { syncEggWiggle() }
+        // Periodic one-shot egg wobbles: one sleeping task per tier, cancelled with the view. No loop at
+        // all for an early egg, a hatched Pokémon or under Reduce Motion / Low Power (zero idle cost).
+        .task(id: eggWobbleInterval) {
+            guard let interval = eggWobbleInterval else { return }
+            await EggIncubationTier.wobbleLoop(every: interval) { eggWobbles &+= 1 }
+        }
         .task(id: store.currentForm) { await store.loadActiveFormNames() }   // The title names the form.
     }
 
-    /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.
-    private func playCelebrationIfNeeded() {
-        guard let c = store.celebration, store.celebrationSeq != seenSeq else { return }
-        seenSeq = store.celebrationSeq
-        store.consumeCelebration()
-        flashOpacity = 0.85
-        celebScale = 0.6
-        withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
-        if case .hatch(shiny: true) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
+    private func nameRow(_ name: String, shiny: Bool) -> some View {
+        HStack(spacing: 6) {
+            Text(name).font(.callout.weight(.semibold))
+            if shiny { Text("✨").font(.system(size: 11)) }
+            if let r = store.rarity {
+                Badge(store.l.rarityLabel(r).uppercased(), tint: .rarity(r))
             }
         }
-        // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
-        if case .dittoReveal(let shiny) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
-            if shiny {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { shinyBurst = true }
+    }
+
+    /// The right column while a subject is presented instead of the live state (`CelebrationPresentation`).
+    @ViewBuilder
+    private func pendingRevealColumn(_ presentation: CelebrationPresentation) -> some View {
+        switch presentation {
+        case .egg:
+            // The egg layout at the moment it hatches: no species, rarity or guarantee badges.
+            Text(CompanionStore.eggName).font(.callout.weight(.semibold))
+            Text(EggIncubationTier.imminent.text(store.l))
+                .font(.caption2).foregroundStyle(.orange)
+                .fixedSize(horizontal: false, vertical: true)
+            LabeledProgressBar(value: 1, label: Self.progressDetail(used: store.eggHatchThreshold,
+                                                                     total: store.eggHatchThreshold))
+        case .subject(let subject):
+            // Its stage completed (it is about to evolve, or has just been revealed with a later item still to
+            // play); types and stage line would already be the live state's.
+            nameRow(subject.name, shiny: subject.isShiny)
+            LabeledProgressBar(value: 1, label: "100%")
+        }
+    }
+
+    /// The right column outside a sequence (and after its reveal caption): the store's live state.
+    @ViewBuilder
+    private var liveColumn: some View {
+        nameRow(store.displayName, shiny: store.currentIsShiny)
+        if store.hasActive, let id = store.currentSpeciesID, let details = store.pokemonDetailsByID[id] {
+            TypeBadges(types: details.types, language: store.language)
+            if !PokemonForm.isDefault(store.currentForm, speciesID: id) {
+                Text(store.l.defaultFormDataNote)
+                    .font(.caption2).foregroundStyle(.secondary)
+                    .fixedSize(horizontal: false, vertical: true)
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; shinyBurst = false }
+        }
+        if store.hasActive {
+            // 단계 + 성격(부화 시 확정된 개체 아이덴티티)
+            let nature = store.currentNature.map { " · \($0.name(store.language))" } ?? ""
+            HStack(spacing: 5) {
+                Text(store.stageText + nature).font(.caption2).foregroundStyle(.secondary)
+                if let multiplier = store.growthMultiplier {
+                    Badge(store.l.growthBoost(multiplier), tint: .orange, style: .tinted)
+                        .fixedSize()
+                }
             }
+            LabeledProgressBar(value: store.progress,
+                               label: Self.progressDetail(used: store.state.active?.usedAtStage ?? 0,
+                                                          total: store.threshold))
+            if store.tokensToNext > 0 {
+                let amount = TokenFormatter.compact(store.tokensToNext)
+                Text(store.isFinalStage ? store.l.toGraduation(amount) : store.l.toNextEvolution(amount))
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+        } else {
+            // 알 인큐베이션 — 부화까지 진행. 네 단계 문구(임박 단계는 주황).
+            let tier = EggIncubationTier.tier(progress: store.eggProgress)
+            HStack(spacing: 6) {
+                Text(tier.text(store.l))
+                    .font(.caption2)
+                    .foregroundStyle(tier == .imminent ? AnyShapeStyle(.orange) : AnyShapeStyle(.secondary))
+                    .fixedSize(horizontal: false, vertical: true)
+                // 등급 보증 알이면 무엇을 품고 있는지 — 도감 칩과 같은 라벨·색.
+                // 알 스프라이트는 한 장뿐이라 등급 구분은 이 배지가 유일한 신호다.
+                if let guarantee = store.eggGuarantee {
+                    Badge(store.l.eggGuaranteeHint(guarantee), tint: .rarity(guarantee))
+                }
+            }
+            LabeledProgressBar(value: store.eggProgress,
+                               label: Self.progressDetail(used: store.state.eggUsage,
+                                                          total: store.eggHatchThreshold))
+            if store.isEgg, store.isHatchRetryDelayed {
+                Text(store.l.eggHatchDelayed)
+                    .font(.caption2)
+                    .foregroundStyle(.orange)
+                    .fixedSize(horizontal: false, vertical: true)
+            } else {
+                Text(store.l.eggToHatch(TokenFormatter.compact(store.eggTokensToHatch)))
+                    .font(.caption2).foregroundStyle(.tertiary)
+            }
+            // 첫 실행(적립 0) — 정적 알 앞에서 "고장났나" 오해 방지용 한 줄 안내
+            if !store.eggStarted {
+                Text(store.l.eggFirstRunHint(TokenFormatter.compact(store.eggHatchThreshold)))
+                    .font(.caption2).foregroundStyle(.tertiary)
+                    .fixedSize(horizontal: false, vertical: true)
+            }
+        }
+    }
+
+    /// The resting sprite tile. Removed (not just hidden) while a sequence plays: the stage draws the
+    /// sprite then, and a hidden animated `SpriteView` would keep decoding frames for nothing. Between two
+    /// queued items it shows the presented subject, never the live end of the chain.
+    @ViewBuilder
+    private func restingSprite(hidden: Bool, presentation: CelebrationPresentation?) -> some View {
+        if hidden {
+            Color.clear
+        } else {
+            let shown: (id: Int?, shiny: Bool, form: PokemonForm?, back: Bool) = switch presentation {
+            case .egg?: (nil, false, nil, false)
+            case .subject(let subject)?: (subject.speciesID, subject.isShiny, subject.form, false)
+            case nil: (store.currentSpeciesID, store.currentIsShiny, store.currentForm, store.facesBack)
+            }
+            SpriteView(speciesID: shown.id, size: 76, bob: true, animated: true,
+                       shiny: shown.shiny, spriteStore: spriteStore, form: shown.form, back: shown.back)
+                .frame(width: 76, height: 76)
+                .background(Color.secondary.opacity(0.06))
+                .clipShape(RoundedRectangle(cornerRadius: 12))
+                // One-shot wobble per trigger change (the floating pet's prayer wobble).
+                .modifier(OneShotWobble(trigger: eggWobbles))
+        }
+    }
+
+    /// Plays the popover's queue head on the sprite; idempotent while that head is already playing.
+    /// The end of a sequence finishes its item (releasing its held notification); the head change that
+    /// follows starts the next one through `onChange`. When the floating pet already plays the head, the
+    /// header joins it at the same start; when the pet finished it first, the header moves on (or stops).
+    private func playCelebrationIfNeeded() {
+        guard store.isLive(.popover) else { return }
+        guard let head = store.celebrations.next(for: .popover) else {
+            stopPlayback()   // seen on the pet first: nothing left to play here
+            return
+        }
+        guard player.item?.id != head.id else { return }
+        // 메타몽 리빌 — 스테이지 시퀀스가 없다. 위장체→메타몽 스프라이트 교체를 흰 플래시가 덮고,
+        // 🎭 버스트(이로치면 ✨ 동반) 후 바로 완료한다.
+        if case .dittoReveal(let shiny) = head.kind {
+            stopPlayback()
+            playDittoReveal(shiny: shiny)
+            store.finishCelebration(id: head.id)
+            return
+        }
+        if let previous = player.item?.id { store.celebrationStopped(id: previous, on: .popover) }
+        let shared = store.beginCelebration(id: head.id, on: .popover, now: player.now, reduced: motion().reduced)
+        play(head, from: shared.startedAt, reduced: shared.reduced)
+    }
+
+    /// Plays in the shared version: a joiner adopts the first surface's timeline even if the motion settings
+    /// changed in between.
+    private func play(_ head: PendingCelebration, from start: Date, reduced: Bool) {
+        player.reduced = reduced
+        // Captures the store only: a closure holding this view would hold its @State player in a cycle,
+        // keeping a torn-down popover's player alive long enough to finish an item nobody saw.
+        // The store decides: finished if the popover is still live, else a stop (seen only past the reveal).
+        player.play(head, now: start, onFinish: { [store] id in
+            store.celebrationPlayerEnded(id: id, on: .popover)
+        }, onSkip: { [store] id, start in store.skipCelebration(id: id, startedAt: start) },
+           onSeen: { [store] id in store.celebrationRevealed(id: id) })
+    }
+
+    /// Re-aligns on the shared start after another surface skipped the item.
+    private func followSharedStart() {
+        guard let shared = store.celebrationPlayback, let item = player.item, shared.id == item.id,
+              player.startedAt != shared.startedAt else { return }
+        play(item, from: shared.startedAt, reduced: shared.reduced)
+    }
+
+    /// Stops this surface's playback before its end: seen if it passed the reveal and nobody else plays it.
+    private func stopPlayback() {
+        let id = player.item?.id
+        player.cancel()
+        if let id { store.celebrationStopped(id: id, on: .popover) }
+    }
+
+    private func playDittoReveal(shiny: Bool) {
+        flashOpacity = 0.85
+        withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
+        if shiny {
+            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { dittoShinyBurst = true }
+        }
+        Task { @MainActor in
+            try? await Task.sleep(nanoseconds: 2_600_000_000)
+            withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; dittoShinyBurst = false }
         }
     }
 
@@ -901,15 +1055,9 @@ struct CompanionHeader: View {
         }
     }
 
-    private func syncEggWiggle() {
-        if eggImminent {
-            withAnimation(.easeInOut(duration: 0.35).repeatForever(autoreverses: true)) { eggWiggle = true }
-        } else {
-            withAnimation(.default) { eggWiggle = false }
-        }
-    }
-
-    private var statusLine: String {
+    /// `presenting`: a queued subject stands in for the live state, whose evolution name would be the end of
+    /// the chain; the level-up line then names nothing.
+    private func statusLine(presenting: Bool) -> String {
         let l = store.l
         switch store.displayState {
         case .egg:     return l.statusEgg
@@ -919,7 +1067,7 @@ struct CompanionHeader: View {
         case .tired:   return l.statusTired
         case .sleep:   return l.statusSleep
         case .sulk:    return l.statusSulk
-        case .levelUp: return store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
+        case .levelUp: return presenting ? l.statusGrew : store.justEvolvedTo.map { l.statusEvolved($0) } ?? l.statusGrew
         }
     }
 }

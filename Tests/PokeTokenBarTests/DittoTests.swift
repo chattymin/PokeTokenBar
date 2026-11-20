@@ -145,7 +145,7 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.plannedPathIDs, [132])
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
-        XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
+        XCTAssertEqual(s.celebrations.items.last?.kind, .dittoReveal(shiny: false), "리빌 연출 발화")
     }
 
     func testRevealRebasesDisguiseProfileAndLoadsDittoDetails() async {
@@ -324,7 +324,7 @@ final class DittoRevealTests: XCTestCase {
         await drainReveal(s)
         XCTAssertTrue(s.state.active?.dittoRevealed ?? false)
         XCTAssertTrue(s.currentIsShiny, "리빌 후 이로치 공개")
-        XCTAssertEqual(s.celebration, .dittoReveal(shiny: true), "이로치 리빌 연출")
+        XCTAssertEqual(s.celebrations.items.last?.kind, .dittoReveal(shiny: true), "이로치 리빌 연출")
     }
 
     /// 임계 미달이면 리빌하지 않는다(위장 유지).

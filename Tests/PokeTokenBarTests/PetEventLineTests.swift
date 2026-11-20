@@ -139,6 +139,26 @@ final class PetEventLineTests: XCTestCase {
         XCTAssertFalse(prayed.latestEvent?.text.lowercased().contains("shiny") ?? true, "a disguised shiny stays hidden")
     }
 
+    /// The Ditto reveal arrives while the hatch still waits to play: its notice waits behind the hatch's.
+    func testDittoRevealDuringAHeldHatchWaitsBehindIt() async throws {
+        let store = dittoStore(seed: Self.shinyDisguisedDittoSeed)
+        store.popoverOpen = true
+        var texts: [String] = []
+        store.companionEventObserver = { texts.append($0.text) }
+        await store.hatch(baseID: 1)
+        let hatch = try XCTUnwrap(store.celebrations.items.first)
+        XCTAssertNotNil(hatch.deferred)
+        store.applyUsage(130_000_000)
+        let deadline = Date().addingTimeInterval(2)
+        while store.state.active?.dittoRevealed != true, Date() < deadline {
+            try? await Task.sleep(nanoseconds: 5_000_000)
+        }
+        XCTAssertEqual(store.state.active?.dittoRevealed, true)
+        XCTAssertEqual(texts, [], "the reveal must not overtake the hatch still to play")
+        store.finishCelebration(id: hatch.id)
+        XCTAssertEqual(texts, [L(.en).notifHatchBody("Bulb"), L(.en).notifShinyDittoRevealBody("Bulb")])
+    }
+
     func testRevealEventReplacesTheHatchLineAndNeverShowsAnEvolution() async throws {
         let store = dittoStore(seed: Self.shinyDisguisedDittoSeed)
         await store.hatch(baseID: 1)
