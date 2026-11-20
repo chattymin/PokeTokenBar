@@ -1431,6 +1431,25 @@ struct L {
         return t("기도 \(n)번 끝에 \(KoreanParticle.subject.attach(to: name)) 나왔어요. 반은 통한 걸로 칩시다.", "\(n) prayers later: \(name). Let's call it half a miracle.", "お祈り\(n)回の末、\(name) が生まれました。半分は通じたってことにしよう。", "Tras \(n) oraciones: \(name). Digamos que fue medio milagro.", "Après \(n) prières : \(name). Disons que c'est un demi-miracle.", "Após \(n) orações: \(name). Vamos chamar de meio milagre.", "Nach \(n) Gebeten: \(name). Nennen wir es ein halbes Wunder.", "После \(n) молитв: \(name). Считаем это половиной чуда.")
     }
     var eggImminent: String { t("곧 부화해요!", "About to hatch!", "もうすぐ孵化！", "¡Está a punto de eclosionar!", "Sur le point d'éclore !", "Está quase chocando!", "Schlüpft gleich!", "Вот-вот вылупится!") }
+    // MARK: 알 부화 단계 문구 / 연출 대사 (게임 느낌을 살린 의역 — 공식 문구 그대로가 아니다)
+    var eggTierEarly: String { t("이 알이 부화하려면 아직 한참 남았어요.", "This egg still has a long way to go.", "このタマゴが孵るまでには、まだまだ時間がかかりそうだ。", "Aún falta mucho para que este huevo eclosione.", "Il faudra encore beaucoup de temps avant que cet œuf éclose.", "Ainda falta muito para este ovo chocar.", "Bis dieses Ei schlüpft, dauert es noch lange.", "Этому яйцу ещё долго до вылупления.") }
+    var eggTierMoving: String { t("가끔 움직여요. 곧 부화할 것 같아요.", "It moves now and then. It should hatch before long.", "ときどき動いている。もうすぐ孵りそうだ。", "Se mueve de vez en cuando. Debe de estar a punto de eclosionar.", "Il bouge de temps en temps. Il doit être sur le point d'éclore.", "Mexe de vez em quando. Deve estar quase chocando.", "Es bewegt sich ab und zu. Bald schlüpft es wohl.", "Иногда шевелится. Скоро, наверное, вылупится.") }
+    var eggTierSounds: String { t("안에서 소리가 들려요!", "Sounds are coming from inside!", "中から音が聞こえる！", "¡Se oyen ruidos dentro!", "On entend des bruits à l'intérieur !", "Há sons vindo de dentro!", "Von drinnen sind Geräusche zu hören!", "Изнутри доносятся звуки!") }
+    var eggTierImminent: String { t("곧 부화할 거예요!", "It's about to hatch!", "今にも孵りそうだ！", "¡Va a eclosionar enseguida!", "Il va bientôt éclore !", "Vai chocar daqui a pouco!", "Gleich schlüpft es!", "Сейчас вылупится!") }
+    func celebrationEvolveAnnounce(_ name: String) -> String { t("어라…? \(KoreanParticle.subject.attach(to: name)) 진화하려 해요!", "Huh? \(name) is evolving!", "おっ？ \(name)が進化しようとしている！", "¿Eh? ¡\(name) está evolucionando!", "Hein ? \(name) évolue !", "Hã? \(name) está evoluindo!", "Hä? \(name) entwickelt sich!", "Что? \(name) эволюционирует!") }
+    func celebrationEvolveDone(from old: String, to new: String) -> String { t("축하해요! \(KoreanParticle.subject.attach(to: old)) \(KoreanParticle.direction.attach(to: new)) 진화했어요!", "Congratulations! \(old) evolved into \(new)!", "やったね！ \(old)が\(new)に進化したよ！", "¡Felicidades! ¡\(old) evolucionó a \(new)!", "Félicitations ! \(old) a évolué en \(new) !", "Parabéns! \(old) evoluiu para \(new)!", "Glückwunsch! \(old) hat sich zu \(new) entwickelt!", "Поздравляем! \(old) эволюционировал в \(new)!") }
+    var celebrationHatchOh: String { t("어라?", "Oh?", "おや？", "¿Oh?", "Oh ?", "Oh?", "Oh?", "О?") }
+    func celebrationHatchDone(_ name: String) -> String { t("\(KoreanParticle.subject.attach(to: name)) 알에서 나왔어요!", "\(name) hatched from the egg!", "\(name)がタマゴから出てきた！", "¡\(name) salió del huevo!", "\(name) est sorti de l'œuf !", "\(name) saiu do ovo!", "\(name) ist aus dem Ei geschlüpft!", "\(name) вылупился из яйца!") }
+    /// nil = no line at this beat, or the text does not belong to this kind of celebration.
+    func celebrationText(_ text: CelebrationText, kind: CelebrationKind) -> String? {
+        switch (text, kind) {
+        case (.evolveAnnounce, .evolve(let from, _)): return celebrationEvolveAnnounce(from.name)
+        case (.evolveDone, .evolve(let from, let to)): return celebrationEvolveDone(from: from.name, to: to.name)
+        case (.hatchOh, .hatch): return celebrationHatchOh
+        case (.hatchDone, .hatch(let to)): return celebrationHatchDone(to.name)
+        default: return nil
+        }
+    }
     /// 첫 실행(아직 토큰 적립 0) 안내 — "왜 아무 일도 안 일어나지"를 방지.
     /// `amount` 는 성장 난이도가 반영된 부화 임계(포맷된 값) — 고정 5M 이 아니다.
     func eggFirstRunHint(_ amount: String) -> String {
