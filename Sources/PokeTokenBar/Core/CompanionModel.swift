@@ -451,6 +451,14 @@ enum PokemonOdds {
     static let dittoDisguiseDenominator: UInt64 = 128
     /// 메타몽 종 id — 위장 리빌 전용(일반 부화 풀에서 제외).
     static let dittoSpeciesID = 132
+    /// Pity: after this many repeat hatches in a row, the next egg is drawn only among bases with no
+    /// collected final (still weighted by capture rate). It bounds droughts without touching the normal
+    /// odds — the collected-base ½ weight in `chooseBase` and the 2× repeat growth (#253, #254) stay as
+    /// they are, so re-hatching and shiny hunting remain open.
+    /// Why a cap and not a smaller multiplier: the ½ penalty scales with capture rate, so a collected
+    /// common (255→127) still outweighs an uncollected legendary (3) ~40×. A smaller multiplier only
+    /// thins repeats out gradually; a cap bounds the run outright.
+    static let repeatHatchPityThreshold = 5
 }
 
 /// Prayers said over an egg, carried onto the individual that hatched from it.
@@ -702,6 +710,11 @@ struct CompanionState: Codable, Sendable {
     var notifiedDexCompletions: Set<String> = []
     // 완성 추적 첫 실행 시드 완료 — 기능 출시 전 이미 완성한 세대에 알림 폭주를 막는다(candyFeatureSeeded 패턴).
     var dexCompletionsSeeded = false
+    /// Consecutive hatches whose base already had a collected final (the `hasGrowthBoost` predicate).
+    /// Decided once per hatch in `hatchCore`: a repeat adds one, a new line resets it to 0. `chooseBase`
+    /// reads it for the pity draw (`PokemonOdds.repeatHatchPityThreshold`). Progress — it travels with a
+    /// save; older builds ignore the key and a save without it decodes to 0.
+    var repeatHatchStreak = 0
 
     init() {}
 
@@ -745,6 +758,7 @@ struct CompanionState: Codable, Sendable {
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         notifiedDexCompletions = c.lenient(Set<String>.self, forKey: .notifiedDexCompletions, default: [])
         dexCompletionsSeeded = c.lenient(Bool.self, forKey: .dexCompletionsSeeded, default: false)
+        repeatHatchStreak  = c.lenient(Int.self, forKey: .repeatHatchStreak, default: 0)
     }
 
     /// 졸업 기록 또는 현재 개체가 실제로 도달한 단계에 이 종이 포함되는가.

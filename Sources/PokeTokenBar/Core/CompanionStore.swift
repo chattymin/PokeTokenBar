@@ -1793,6 +1793,11 @@ final class CompanionStore {
         var profile = PokemonProfile.generate(seed: rng.next())
         if let details = pokemonDetailsByID[line.baseID] { profile.enrich(with: details) }
         let hasGrowthBoost = state.hasCollectedFinal(forBaseID: line.baseID)
+        // Pity counter — same predicate as the growth boost, decided once here: every hatch path (prepared
+        // or freshly rolled egg, Ditto disguise, overflow carry-over) converges on this line after the discard
+        // guards above. The next egg is only rolled after this Pokémon leaves (graduation or a bought egg),
+        // so that roll always sees the updated streak.
+        state.repeatHatchStreak = hasGrowthBoost ? state.repeatHatchStreak + 1 : 0
         let form = pendingForm ?? rollLineForm(baseID: line.baseID)
         // 위장 중엔 이로치를 숨긴다 — 부화 알림·연출도 일반체로(정체는 리빌 때 공개).
         let showShiny = isShiny && dittoDisguise == nil
@@ -1801,7 +1806,7 @@ final class CompanionStore {
                                 stageIndex: 0, usedAtStage: 0, rarity: line.rarity, totalForms: evolutionPlan.count,
                                 isShiny: isShiny, nature: nature, profile: profile, hasGrowthBoost: hasGrowthBoost,
                                 dittoDisguise: dittoDisguise, form: form, prayers: prayers)
-        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) ditto=\(dittoDisguise != nil)")
+        AppLog.write("hatch: base=\(line.baseID) rarity=\(line.rarity) shiny=\(isShiny) forms=\(evolutionPlan.count) boost=\(hasGrowthBoost) streak=\(state.repeatHatchStreak) ditto=\(dittoDisguise != nil)")
         let name = formDisplayName(line.localizedName(line.baseID, state.language),
                                    speciesID: line.baseID, form: form)
         let hatchBody: String
@@ -1854,6 +1859,7 @@ final class CompanionStore {
         m.dittoRevealed = true
         m.form = nil
         // The hatch boost came from the disguise's line; from now on only a repeat Ditto earns it.
+        // `repeatHatchStreak` is not reclassified: it was decided once at hatch from the line the roll drew.
         m.hasGrowthBoost = state.hasCollectedFinal(forBaseID: dittoLine.baseID)
         m.profile?.rebaseForSpeciesIdentity(from: previousRarity, to: dittoLine.rarity)
         if let details = pokemonDetailsByID[dittoLine.baseID] {
@@ -1908,9 +1914,12 @@ final class CompanionStore {
     ///   ② 가중치 = 공식 capture_rate 그대로(캐터피 255 vs 뮤츠 3 = 85:1, 전설군 ≈ 0.77%)
     ///      단, 이미 수집한 base 는 가중치 ½(미수집 부스트 — 재부화/shiny 사냥은 열어둠)
     ///   ③ 누적 가중치에서 정확히 1롤 — 루프/재롤 없음, 시간 상한 확정적
+    ///   ④ Pity: after `PokemonOdds.repeatHatchPityThreshold` repeat hatches in a row, draw only among
+    ///      uncollected bases (still capture-rate weighted). Nothing uncollected → the normal draw.
     /// 인덱스 취득 실패(오프라인 + 캐시 없음) 시 nil → 알 유지, 다음 갱신 틱 재시도.
     private func chooseBase() async -> Int? {
         let tier = state.eggTier
+        let pityDue = state.repeatHatchStreak >= PokemonOdds.repeatHatchPityThreshold
         if let full = try? await provider.baseSpeciesIndex(), !full.isEmpty {
             // 등급 보증 알은 후보를 먼저 좁힌다 — capture_rate 상한이 곧 등급 하한이므로
             // (Rarity.captureRateCeiling) 전설도 자연히 포함된다("희귀 이상"에 전설이 들어가는 게 정상).
@@ -1920,23 +1929,43 @@ final class CompanionStore {
                 AppLog.write("hatch: no candidate for guaranteed \(tier?.rawValue ?? "none") — egg kept, retry next tick")
                 return nil
             }
-            let weights = index.map { e in
+            // Pity narrows the pool after the tier filter, so a graded egg keeps its guarantee. If the
+            // tier (or the whole dex) has nothing uncollected, fall back to the normal draw — pity must
+            // never stop an egg from hatching. Still exactly one roll below either way.
+            var pool = index
+            if pityDue {
+                let uncollected = index.filter { !state.hasCollectedFinal(forBaseID: $0.id) }
+                if uncollected.isEmpty {
+                    AppLog.write("hatch: pity due (streak \(state.repeatHatchStreak)) but no uncollected base in pool — normal draw")
+                } else {
+                    pool = uncollected
+                    AppLog.write("hatch: pity (streak \(state.repeatHatchStreak)) — drawing among \(uncollected.count) uncollected bases")
+                }
+            }
+            let weights = pool.map { e in
                 CollectionWeight.adjusted(e.captureRate, isCollected: state.hasCollectedFinal(forBaseID: e.id))
             }
             let total = weights.reduce(0, +)
             var r = Int(rng.next() % UInt64(total))
             for (i, w) in weights.enumerated() {
                 r -= w
-                if r < 0 { return index[i].id }
+                if r < 0 { return pool[i].id }
             }
-            return index.last?.id   // 도달 불가(방어)
+            return pool.last?.id   // 도달 불가(방어)
         }
         // GraphQL base 인덱스 엔드포인트 장애 → REST 폴백. 부화가 한 엔드포인트에 묶이지 않게.
         AppLog.write("hatch: base index unavailable — REST fallback")
+        // The fallback has no index, so it cannot tell which bases are uncollected: pity is skipped for
+        // this egg (the streak is kept, so the next index-backed roll applies it). Logged so the skip is
+        // visible instead of looking like pity never fired.
+        if pityDue {
+            AppLog.write("hatch: pity due (streak \(state.repeatHatchStreak)) but skipped — REST fallback has no index")
+        }
         return await chooseBaseViaREST()
     }
 
     /// REST 폴백 — animated 에셋 지원 범위에서 무작위 id 를 뽑아 base 인지 확인(rejection sampling).
+    /// No pity here (no index to know what is uncollected) — `chooseBase` logs the skip.
     /// GraphQL 인덱스가 죽어도 부화가 되게 한다. 가중치(capture_rate)는 생략 — 희귀도는 부화 후
     /// line() 이 실제 capture_rate 로 계산하므로 결과 개체의 등급은 정확하다. 인덱스 복구 시 가중 선택 재개.
     private func chooseBaseViaREST() async -> Int? {
