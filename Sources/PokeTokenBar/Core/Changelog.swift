@@ -66,6 +66,16 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
+        ChangelogDay(date: "2026-11-20", entries: [
+            .improved("2026-11-20-team-region-filter", { $0.t("한 지방만 허용하는 던전의 팀 화면에 지방 필터가 생겼어요. 포켓몬을 고르면 그 지방으로 맞춰지고, 다른 지방 포켓몬은 고를 수 없게 표시돼요.",
+                                                              "A one-region dungeon's team screen has a region filter: picking a Pokémon sets it to that Pokémon's region, and the other regions' are marked as not allowed.",
+                                                              "ひとつの地方だけのダンジョンのチーム画面に地方フィルターができました。ポケモンを選ぶとその地方に合わせ、ほかの地方のポケモンは選べないと表示されます。",
+                                                              "La pantalla de equipo de una mazmorra de una sola región tiene un filtro de región: elegir un Pokémon lo pone en su región, y los de otras regiones se marcan como no permitidos.",
+                                                              "L'écran d'équipe d'un donjon à une seule région a un filtre de région : choisir un Pokémon le met sur sa région, et ceux des autres régions sont marqués comme refusés.",
+                                                              "A tela de equipe de uma masmorra de uma só região tem um filtro de região: escolher um Pokémon o põe na região dele, e os de outras regiões ficam marcados como não permitidos.",
+                                                              "Der Teambildschirm eines Ein-Region-Dungeons hat einen Regionsfilter: Ein gewähltes Pokémon setzt ihn auf seine Region, und die der anderen Regionen sind als nicht erlaubt markiert.",
+                                                              "На экране команды подземелья с одним регионом есть фильтр по региону: выбранный покемон задаёт свой регион, а покемоны других регионов помечены как недопустимые.") }),
+        ]),
         ChangelogDay(date: "2026-11-19", entries: [
             .improved("2026-11-19-rocket-untouchable", { $0.t("로켓단은 절대 붙잡을 수 없어요. 쫓아가면 비주기가 비웃으며 아지트로 오라고 해요. 훔친 물건은 로켓단 아지트에서 되찾으세요.",
                                                               "Team Rocket can never be caught: give chase and Giovanni laughs, telling you to come to his place. Take the item back at Team Rocket's hideout.",

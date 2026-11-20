@@ -22,6 +22,10 @@ struct DungeonTeamScreen: View {
     @State private var useMasterBall = true
     @State private var search = ""
     @State private var filter: CompanionStore.TeamFilter?
+    /// The region shown in a one-region dungeon (the owner, 2026-11-20): picked from the menu, or the region of the
+    /// Pokémon just picked.
+    @State private var region: Int?
+    @State private var showingRegions = false
     @State private var composing = false
 
     var body: some View {
@@ -55,11 +59,12 @@ struct DungeonTeamScreen: View {
                 HStack(spacing: 5) {
                     TextField(l.dexSearchPlaceholder, text: $search)
                         .textFieldStyle(.roundedBorder).controlSize(.small)
+                    if rules.contains(.oneRegion) { regionMenu(l) }
                     filterChips(l)
                 }
                 ScrollView {
                     TeamCandidateList(store: store, dungeon: dungeon, faced: faced, rules: rules, size: size, query: search,
-                                      filter: filter, team: $team, focus: $focus)
+                                      filter: filter, region: $region, team: $team, focus: $focus)
                         .reservesScrollerLane()
                 }
                 .frame(minHeight: 46)
@@ -72,6 +77,10 @@ struct DungeonTeamScreen: View {
             if dungeon.isChallenge, shownBoss == nil { shownBoss = store.challengeBoss(dungeon) }
             // The general team, as far as this dungeon's rules admit it (a player, 2026-11-05).
             if team.isEmpty { team = store.startingTeam(for: dungeon) }
+            // A one-region team brought along: its region shown.
+            if region == nil, rules.contains(.oneRegion) {
+                region = Self.teamRegion(team.compactMap { id in store.dungeonCandidates.first { $0.id == id } })
+            }
         }
         // Again when a member changes form or moves: its spec changes with them, not the team's ids.
         .task(id: estimateKey) { await estimate() }
@@ -166,6 +175,51 @@ struct DungeonTeamScreen: View {
             }
         }
         .frame(maxWidth: .infinity, alignment: .leading)
+    }
+
+    /// The region of a one-region dungeon's team: its first member's. Nil for an empty team.
+    nonisolated static func teamRegion(_ team: [DexEntry]) -> Int? {
+        team.first.map { DungeonCandidate($0).generation }
+    }
+
+    /// A one-region dungeon's region filter (the owner, 2026-11-20): every region, or one; a Pokémon picked sets it to
+    /// its own. A globe and the region's name, a chip like the others.
+    private func regionMenu(_ l: L) -> some View {
+        Button { showingRegions.toggle() } label: {
+            HStack(spacing: 3) {
+                Image(systemName: "globe.europe.africa.fill").font(.system(size: 11, weight: region == nil ? .regular : .bold))
+                if let region { Text(l.regionName(generation: region)).font(.system(size: 10, weight: .semibold)).lineLimit(1) }
+            }
+            .foregroundStyle(region == nil ? Color.secondary : Design.actionColor)
+            .modifier(CapsuleFilterChip(active: region != nil, tint: Design.actionColor))
+        }
+        .buttonStyle(.plain)
+        .fixedSize()
+        .hoverTip(l.dexRegionFilter)
+        .popover(isPresented: $showingRegions, arrowEdge: .bottom) {
+            VStack(alignment: .leading, spacing: 2) {
+                regionChoice(nil, l.dexRegionAll)
+                ForEach(1...9, id: \.self) { generation in regionChoice(generation, l.regionName(generation: generation)) }
+            }
+            .padding(8)
+        }
+    }
+
+    private func regionChoice(_ generation: Int?, _ title: String) -> some View {
+        Button {
+            region = generation
+            showingRegions = false
+        } label: {
+            HStack(spacing: 6) {
+                Image(systemName: "checkmark").font(.system(size: 10, weight: .bold)).opacity(region == generation ? 1 : 0)
+                Text(title).font(.callout)
+                Spacer(minLength: 0)
+            }
+            .frame(minWidth: 130, alignment: .leading)
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .padding(.vertical, 2)
     }
 
     /// Shinies, Megas and Primals, Gigantamax forms: one at a time, a second click lifts it.
@@ -410,6 +464,7 @@ struct TeamCandidateList: View {
     let size: Int
     var query = ""
     var filter: CompanionStore.TeamFilter? = nil
+    @Binding var region: Int?
     @Binding var team: [String]
     @Binding var focus: String?
 
@@ -426,11 +481,14 @@ struct TeamCandidateList: View {
         let l = store.l
         let all = store.dungeonCandidates
         let searched = CompanionStore.DexSearchMatcher(query).map { matcher in all.filter { matcher.matches($0) } } ?? all
-        let shown = filter.map { f in searched.filter { store.matches($0, f) } } ?? searched
+        let filtered = filter.map { f in searched.filter { store.matches($0, f) } } ?? searched
+        let shown = region.map { r in filtered.filter { DungeonCandidate($0).generation == r } } ?? filtered
         let groups = DungeonTeamScreen.candidateGroups(shown, picked: team, loops: store.dungeonProgress.moveLoops)
+        let teamRegion = rules.contains(.oneRegion)
+            ? DungeonTeamScreen.teamRegion(team.compactMap { id in all.first { $0.id == id } }) : nil
         let rows = groups.map { group in
             (entry: group.entry, count: group.count,
-             refusal: rules.first { !DungeonTeamRules.admits(DungeonCandidate(group.entry), rules: [$0]) })
+             refusal: Self.refusal(group.entry, rules: rules, teamRegion: teamRegion, picked: team.contains(group.entry.id)))
         }
         .sorted { a, b in rank(a.entry, a.refusal) < rank(b.entry, b.refusal) }
         let taken = store.teamSpecies(team)
@@ -442,7 +500,11 @@ struct TeamCandidateList: View {
                 LazyVGrid(columns: Array(repeating: GridItem(.flexible(), spacing: 6), count: 3), spacing: 6) {
                     ForEach(rows, id: \.entry.id) { row in
                         CandidateRow(store: store, entry: row.entry, count: row.count, refusal: row.refusal,
-                                     info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus)
+                                     info: infos[row.entry.id], size: size, taken: taken, team: $team, focus: $focus,
+                                     onPicked: { entry in
+                                         // A Pokémon picked in a one-region dungeon shows its region (2026-11-20).
+                                         if rules.contains(.oneRegion) { region = DungeonCandidate(entry).generation }
+                                     })
                     }
                 }
             }
@@ -451,6 +513,16 @@ struct TeamCandidateList: View {
     }
 
     /// Refused last, then strong, neutral and weak here, the strongest Pokémon first in each.
+    /// The rule that keeps a candidate out: one it breaks alone, or, in a one-region dungeon, another region than the
+    /// team's (the owner, 2026-11-20), never for a member already in.
+    nonisolated static func refusal(_ entry: DexEntry, rules: [DungeonRule], teamRegion: Int?, picked: Bool) -> DungeonRule? {
+        if let own = rules.first(where: { !DungeonTeamRules.admits(DungeonCandidate(entry), rules: [$0]) }) { return own }
+        if rules.contains(.oneRegion), let teamRegion, !picked, DungeonCandidate(entry).generation != teamRegion {
+            return .oneRegion
+        }
+        return nil
+    }
+
     private func rank(_ entry: DexEntry, _ refusal: DungeonRule?) -> (Int, Int, Int) {
         let info = infos[entry.id]
         let fit = switch info?.fit { case .strong: 0; case .weak: 2; default: 1 }
@@ -492,6 +564,7 @@ private struct CandidateRow: View {
     let taken: Set<Int>
     @Binding var team: [String]
     @Binding var focus: String?
+    var onPicked: (DexEntry) -> Void = { _ in }
 
     var body: some View {
         let l = store.l
@@ -506,6 +579,7 @@ private struct CandidateRow: View {
                     if focus == entry.id { focus = nil }
                 } else if !blocked {
                     team.append(entry.id)
+                    onPicked(entry)
                 }
             } label: {
                 VStack(spacing: 3) {

@@ -44,6 +44,21 @@ final class DungeonStoreTests: XCTestCase {
     // MARK: The save
 
     /// A save from before the dungeons decodes with none, and a dungeon's state comes back whole.
+    /// The owner, 2026-11-20: in a one-region dungeon, a Pokémon picked sets the region; one of another region than the
+    /// team's is refused in the list, a member already in never.
+    func testAOneRegionTeamRefusesOtherRegions() {
+        let charizard = graduated(6), typhlosion = graduated(157), pikachu = graduated(25)
+        XCTAssertEqual(DungeonTeamScreen.teamRegion([charizard, typhlosion]), 1, "the first member's: Kanto")
+        XCTAssertNil(DungeonTeamScreen.teamRegion([]))
+        let rules: [DungeonRule] = [.oneRegion]
+        XCTAssertEqual(TeamCandidateList.refusal(typhlosion, rules: rules, teamRegion: 1, picked: false), .oneRegion,
+                       "Johto in a Kanto team")
+        XCTAssertNil(TeamCandidateList.refusal(pikachu, rules: rules, teamRegion: 1, picked: false), "Kanto")
+        XCTAssertNil(TeamCandidateList.refusal(typhlosion, rules: rules, teamRegion: nil, picked: false), "an empty team")
+        XCTAssertNil(TeamCandidateList.refusal(typhlosion, rules: rules, teamRegion: 1, picked: true), "already in")
+        XCTAssertNil(TeamCandidateList.refusal(typhlosion, rules: [], teamRegion: 1, picked: false), "no such rule")
+    }
+
     func testTheSaveKeepsTheDungeons() throws {
         let old = #"{"installBaselineSet":true,"usedSinceInstall":5,"dex":[],"inventory":{}}"#
         let decoded = try JSONDecoder().decode(CompanionState.self, from: Data(old.utf8))
