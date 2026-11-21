@@ -220,6 +220,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
     static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
                                       colors: [UsageStore.MenuLimitColorRun]) {
+        // With no text there is nothing to sit beside, so the sprite takes the center of the item.
+        let position: NSControl.ImagePosition = lines.contains { !$0.isEmpty } ? .imageLeading : .imageOnly
+        if button.imagePosition != position { button.imagePosition = position }
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:
             // titleRect.y 가 음수 → 상단 클리핑 + 하단 여백, 사용자 지적). 그래서 baselineOffset 을
@@ -360,13 +363,68 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
     }
 
-    private func setMenuFrames(_ frames: [(image: NSImage, delay: TimeInterval)]) {
+    private func setMenuFrames(_ rawFrames: [(image: NSImage, delay: TimeInterval)]) {
+        let frames = Self.centeredOnArt(rawFrames)
         menuFrames = frames
         // 레이어용 비트맵은 프레임을 준비할 때 한 번만 만든다 — 프레임마다 변환하면 절감분이 사라진다.
         let converted = frames.compactMap { Self.cgFrame(from: $0.image) }
         menuLayerFrames = converted.count == frames.count ? converted : []   // 하나라도 실패하면 폴백
         menuIndex = 0
         advanceMenu()
+    }
+
+    /// Moves the frames of one sprite together so their visible pixels sit in the middle of the
+    /// canvas. Sprites carry transparent margins of their own, and one offset shared by every
+    /// frame keeps the animation from shaking.
+    static func centeredOnArt(_ frames: [(image: NSImage, delay: TimeInterval)])
+        -> [(image: NSImage, delay: TimeInterval)] {
+        let bitmaps = frames.compactMap { cgFrame(from: $0.image) }
+        guard bitmaps.count == frames.count, let first = bitmaps.first,
+              let canvas = frames.first?.image.size, canvas.width > 0,
+              bitmaps.allSatisfy({ $0.width == first.width && $0.height == first.height })
+        else { return frames }
+        let visible = bitmaps.compactMap { visibleBounds(of: $0) }
+        guard visible.count == bitmaps.count, let firstBounds = visible.first else { return frames }
+        let art = visible.reduce(firstBounds) { $0.union($1) }
+        let scale = CGFloat(first.width) / canvas.width
+        let dx = ((CGFloat(first.width) - art.width) / 2 - art.minX).rounded() / scale
+        // Bitmap rows count from the top, AppKit's y axis from the bottom.
+        let dy = (art.minY - (CGFloat(first.height) - art.height) / 2).rounded() / scale
+        guard dx != 0 || dy != 0 else { return frames }
+        return frames.map { frame in
+            let moved = NSImage(size: canvas)
+            moved.lockFocus()
+            NSGraphicsContext.current?.imageInterpolation = .none
+            frame.image.draw(in: NSRect(x: dx, y: dy, width: canvas.width, height: canvas.height),
+                             from: .zero, operation: .sourceOver, fraction: 1)
+            moved.unlockFocus()
+            return (moved, frame.delay)
+        }
+    }
+
+    /// The box of a bitmap's visible pixels, with y counted from the top row.
+    static func visibleBounds(of bitmap: CGImage) -> CGRect? {
+        let width = bitmap.width, height = bitmap.height
+        var alpha = [UInt8](repeating: 0, count: width * height)
+        let drawn = alpha.withUnsafeMutableBytes { bytes -> Bool in
+            guard let context = CGContext(data: bytes.baseAddress, width: width, height: height,
+                                          bitsPerComponent: 8, bytesPerRow: width,
+                                          space: CGColorSpaceCreateDeviceGray(),
+                                          bitmapInfo: CGImageAlphaInfo.alphaOnly.rawValue)
+            else { return false }
+            context.draw(bitmap, in: CGRect(x: 0, y: 0, width: width, height: height))
+            return true
+        }
+        guard drawn else { return nil }
+        var minX = width, maxX = -1, minY = height, maxY = -1
+        for y in 0..<height {
+            for x in 0..<width where alpha[y * width + x] > 24 {
+                minX = min(minX, x); maxX = max(maxX, x)
+                minY = min(minY, y); maxY = max(maxY, y)
+            }
+        }
+        guard maxX >= 0 else { return nil }
+        return CGRect(x: minX, y: minY, width: maxX - minX + 1, height: maxY - minY + 1)
     }
 
     private var lastStatusImage: NSImage?
