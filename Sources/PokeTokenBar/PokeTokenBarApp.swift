@@ -220,9 +220,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// (`colors`) 외에는 색을 지정하지 않아 메뉴바 명암(라이트/다크)·비활성(appearsDisabled) 상태에 자동 적응한다.
     static func applyMenuText(_ lines: [String], to button: NSStatusBarButton,
                                       colors: [UsageStore.MenuLimitColorRun]) {
-        // With no text there is nothing to sit beside, so the sprite takes the center of the item.
-        let position: NSControl.ImagePosition = lines.contains { !$0.isEmpty } ? .imageLeading : .imageOnly
-        if button.imagePosition != position { button.imagePosition = position }
+        let hasText = lines.contains { !$0.isEmpty }
+        // The title is measured below, so the layout for text has to be in place first.
+        if hasText, button.imagePosition != .imageLeading { button.imagePosition = .imageLeading }
+        // With no text the sprite takes the center of the item. This runs after the title is set,
+        // because AppKit turns `.imageOnly` into `.imageOverlaps` whenever a title is assigned.
+        defer { if !hasText, button.imagePosition != .imageOnly { button.imagePosition = .imageOnly } }
         if lines.count >= 2 {
             // NSStatusBarButton 은 멀티라인 title 을 세로 중앙에 두지 않고 위로 치우쳐 그린다(측정:
             // titleRect.y 가 음수 → 상단 클리핑 + 하단 여백, 사용자 지적). 그래서 baselineOffset 을
