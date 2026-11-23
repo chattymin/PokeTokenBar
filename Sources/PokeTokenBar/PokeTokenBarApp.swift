@@ -168,7 +168,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// (플로팅 펫은 `body` 에서 직접 읽어 SwiftUI 관찰이 처리한다.)
     private func observeCompanionSprite() {
         withObservationTracking {
-            _ = companion.representativeSubject
+            _ = companion.heldRepresentativeSubject   // 공개 전 연출이 있으면 그 직전 모습을 붙든다
             _ = companion.facesBack   // part of `menuSpriteKey`
             _ = store.animationQuality
         } onChange: { [weak self] in
@@ -317,7 +317,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// 프레임률만 낮춰, 애니메이션을 유지한 채 절전한다(bob 2회/s ↔ powerSaver ≤2.5회/s 로 근접).
     private func ensureMenuAnimation() {
         guard displayAwake else { return }
-        let subject = companion.representativeSubject
+        // 연출이 공개되기 전엔 알·옛 단계·위장체를 그대로 — 팝오버·펫보다 메뉴바가 먼저 결과를 말하지 않게.
+        let subject = companion.heldRepresentativeSubject
         let id = subject.speciesID
         let shiny = subject.isShiny
         let form = subject.form

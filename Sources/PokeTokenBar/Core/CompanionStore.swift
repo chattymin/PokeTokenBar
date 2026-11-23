@@ -55,6 +55,8 @@ final class CompanionStore {
     /// 진화는 단계마다 따로 재생한다(합치지 않는다 — 중간 모습도 한 번씩 보여 준다는 사용자 결정).
     static let celebrationQueueCap = 6
     private(set) var celebrationSeq = 0
+    /// 헤더·플로팅 펫이 함께 보는 연출 재생(저장 안 함). 무엇을 언제 꺼내는지는 `CelebrationStage` 정본.
+    @ObservationIgnored private(set) var celebrationStage: CelebrationStage!
     /// 다음에 재생될 연출(없으면 nil).
     var celebration: Celebration? { pendingCelebrations.first }
     private func fireCelebration(_ c: Celebration) {
@@ -127,6 +129,7 @@ final class CompanionStore {
         self.rng = rng
         self.dittoDisguiseRollingEnabled = dittoDisguiseRollingEnabled
         self.defaults = defaults
+        defer { celebrationStage = CelebrationStage(store: self) }
         let storedGrowth = defaults.object(forKey: "growthDifficulty") as? Double ?? PokemonBalance.defaultDifficulty
         // Previous releases accepted 0.01%–2000%. Reprice their banked progress before
         // persisting the narrower range, otherwise an upgrade silently changes completion.
@@ -1446,6 +1449,7 @@ final class CompanionStore {
         // 개체의 부화가 재생된다. 그 앞(이전 개체들의 졸업까지)은 도감에 남은 일이라 그대로 재생한다.
         let lastGraduation = pendingCelebrations.lastIndex { if case .graduate = $0 { true } else { false } }
         pendingCelebrations.removeSubrange((lastGraduation.map { $0 + 1 } ?? 0)...)
+        celebrationStage.queueReplaced()
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
@@ -2097,6 +2101,7 @@ final class CompanionStore {
         justGraduated = nil
         eventUntil = nil
         pendingCelebrations.removeAll()
+        celebrationStage.queueReplaced()
         isHatchRetryDelayed = false
         // 이전 개체 기준의 1회성 피드백(사탕 +XP·민트 성격)도 비운다 — 안 비우면 불러온 직후 남의
         // 개체에 대한 "+XP" 가 새 개체 위에 떠오른다.

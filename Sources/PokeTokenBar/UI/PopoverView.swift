@@ -181,6 +181,9 @@ struct PopoverView: View {
                     }
                     .reservesScrollerLane()
                 }
+                // 연출 중엔 스크롤 영역이 빛 층을 자르지 않게(칸 위·왼쪽으로 넘치는 섬광·파편). 평소엔 잘라야
+                // 스크롤한 내용이 탭 막대 위로 비치지 않는다 — 그래서 재생 중일 때만 푼다.
+                .scrollClipDisabled(companion.celebrationStage.active != nil)
                 .frame(height: 520)
             }
             footer

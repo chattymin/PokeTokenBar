@@ -1,3 +1,4 @@
+import AppKit
 import XCTest
 @testable import PokeTokenBar
 
@@ -30,9 +31,14 @@ final class HatchEffectProfileTests: XCTestCase {
             XCTAssertLessThanOrEqual(a.wobbleDegrees, b.wobbleDegrees)
             XCTAssertLessThanOrEqual(a.flashTint, b.flashTint)
             XCTAssertLessThanOrEqual(a.flashPeak, b.flashPeak)
+            XCTAssertLessThan(a.fragments, b.fragments, "껍질 조각")
+            XCTAssertLessThan(a.sparkles, b.sparkles, "반짝이")
+            XCTAssertLessThan(a.burst, b.burst, "폭발 크기")
         }
         XCTAssertEqual(profiles.map(\.wobbles), [1, 2, 3, 4])
-        XCTAssertEqual(profiles.map(\.revealAt), [1.0, 1.5, 2.2, 3.0])
+        XCTAssertEqual(profiles.map(\.revealAt), [1.1, 1.6, 2.3, 3.1])
+        XCTAssertEqual(profiles.map { $0.motes > 0 }, [false, false, false, true], "금빛 티끌은 전설만")
+        XCTAssertLessThanOrEqual(profiles[3].burst, Double(CelebrationFX.overflow), "폭발이 빛 층을 넘지 않는다")
         XCTAssertEqual(profiles.map(\.rays), [false, false, false, true], "빛줄기는 전설만")
         XCTAssertEqual(profiles.map(\.leaksLight), [false, false, true, true])
         XCTAssertEqual(profiles[0].glow, 0, "커먼은 후광 없이 흰 섬광만")
@@ -92,22 +98,36 @@ final class HatchEffectProfileTests: XCTestCase {
 }
 
 final class GraduationEffectTests: XCTestCase {
-    func testPokemonIsPulledInThenTheBallWobblesThreeTimesAndRevealsTheEgg() {
+    /// 본가 회수 순서: 덮개 열림 → 흰 빛 → 붉은 실루엣 → 휘어진 빛줄기로 빨려 듦 → 닫힘 번쩍 → 한 번 튐 →
+    /// 뜸을 둔 3번 흔들림(버튼 붉게) → 딸깍(버튼 꺼짐) → 볼이 사라지며 알.
+    func testRecallFollowsTheGamesOrder() {
         let start = GraduationEffect.frame(at: 0)
         XCTAssertEqual(start.monOpacity, 1); XCTAssertEqual(start.monScale, 1); XCTAssertEqual(start.eggOpacity, 0)
-        let absorbing = GraduationEffect.frame(at: 0.6)
-        XCTAssertGreaterThan(absorbing.monRed, 0.9, "빨려 들어가며 붉게 물든다")
-        XCTAssertLessThan(absorbing.monScale, 0.8)
-        XCTAssertGreaterThan(absorbing.ballOpen, 0.9, "덮개가 열려 있다")
-        XCTAssertEqual(GraduationEffect.frame(at: 0.8).monOpacity, 0, "볼에 들어간 뒤엔 안 보인다")
-        XCTAssertEqual(GraduationEffect.frame(at: 0.9).ballOpen, 0, "닫힌 뒤 흔들린다")
+        XCTAssertGreaterThan(GraduationEffect.frame(at: 0.46).monWhite, 0.9, "흰 빛을 맞는다")
+        XCTAssertGreaterThan(GraduationEffect.frame(at: 0.6).ballOpen, 0.9, "덮개가 열려 있다")
+        XCTAssertGreaterThan(GraduationEffect.frame(at: 0.75).monRed, 0.9, "붉은 빛 실루엣")
+        let pulling = GraduationEffect.frame(at: 0.95)
+        XCTAssertGreaterThan(pulling.beam, 0.9, "빛줄기")
+        XCTAssertGreaterThan(pulling.monPull, 0.1); XCTAssertLessThan(pulling.monScale, 0.95)
+        // 휘어진 길 — 가운데가 직선(포켓몬→볼)에서 벗어난다.
+        XCTAssertGreaterThan(GraduationEffect.pullPoint(0.5).x, 0.1)
+        XCTAssertEqual(GraduationEffect.frame(at: 1.25).monOpacity, 0, "볼에 들어간 뒤엔 안 보인다")
+        XCTAssertEqual(GraduationEffect.frame(at: 1.35).ballOpen, 0, "닫혔다")
+        XCTAssertGreaterThan(GraduationEffect.frame(at: 1.25).closeFlash, 0.5, "닫히며 번쩍")
+        XCTAssertLessThan(GraduationEffect.frame(at: 1.6).ballDrop, -0.03, "한 번 튄다")
+        XCTAssertEqual(GraduationEffect.frame(at: 1.75).ballDrop, 0, "바닥에 놓인다")
         XCTAssertEqual(GraduationEffect.wobbleStarts.count, 3)
+        let gaps = zip(GraduationEffect.wobbleStarts.dropFirst(), GraduationEffect.wobbleStarts).map { $0 - $1 }
+        XCTAssertTrue(gaps.allSatisfy { $0 > GraduationEffect.wobbleLength + 0.05 }, "흔들림 사이에 뜸")
         for s in GraduationEffect.wobbleStarts {
             let u = GraduationEffect.wobbleLength
             XCTAssertGreaterThan(GraduationEffect.frame(at: s + u * 0.25).ballTilt, 10)
             XCTAssertLessThan(GraduationEffect.frame(at: s + u * 0.75).ballTilt, -10)
+            XCTAssertGreaterThan(GraduationEffect.frame(at: s + u * 0.5).buttonRed, 0.9, "흔들릴 때 버튼이 붉게")
+            XCTAssertEqual(GraduationEffect.frame(at: s - 0.02).buttonRed, 0, "뜸 동안엔 꺼져 있다")
         }
-        XCTAssertGreaterThan(GraduationEffect.frame(at: GraduationEffect.clickAt + 0.1).sparkle, 0, "딸깍 반짝임")
+        XCTAssertEqual(GraduationEffect.frame(at: GraduationEffect.clickAt - 0.01).buttonDark, 0)
+        XCTAssertEqual(GraduationEffect.frame(at: GraduationEffect.clickAt + 0.1).buttonDark, 1, "딸깍 — 버튼이 꺼진다")
         let end = GraduationEffect.frame(at: GraduationEffect.duration)
         XCTAssertEqual(end.eggOpacity, 1, accuracy: 1e-9); XCTAssertEqual(end.ballOpacity, 0, accuracy: 1e-9)
     }
@@ -116,7 +136,7 @@ final class GraduationEffectTests: XCTestCase {
         for t in stride(from: 0.0, through: GraduationEffect.reducedDuration, by: 0.05) {
             let f = GraduationEffect.frame(at: t, reduceMotion: true)
             XCTAssertEqual(f.ballTilt, 0); XCTAssertEqual(f.monScale, 1); XCTAssertEqual(f.monPull, 0)
-            XCTAssertEqual(f.ballScale, 1)
+            XCTAssertEqual(f.ballScale, 1); XCTAssertEqual(f.beam, 0); XCTAssertEqual(f.ballDrop, 0)
         }
         XCTAssertEqual(GraduationEffect.frame(at: 0.75, reduceMotion: true).monOpacity, 0)
         XCTAssertEqual(GraduationEffect.frame(at: GraduationEffect.reducedDuration, reduceMotion: true).eggOpacity, 1,
@@ -149,17 +169,75 @@ final class EvolutionEffectTests: XCTestCase {
         XCTAssertEqual(reveal.popScale, 0.6, accuracy: 1e-9, "기존 스프링 팝과 같은 0.6 에서 튀어나온다")
         let end = EvolutionEffect.frame(at: EvolutionEffect.duration)
         XCTAssertEqual(end.flash, 0, accuracy: 1e-9); XCTAssertEqual(end.whiteness, 0)
+        // 무대가 어두워졌다가 공개 뒤 걷힌다.
+        XCTAssertEqual(EvolutionEffect.frame(at: 1.0).dim, 1, accuracy: 1e-9)
+        XCTAssertEqual(end.dim, 0, accuracy: 1e-9)
+        XCTAssertGreaterThan(EvolutionEffect.duration, 3, "BW 진화처럼 3초 남짓")
     }
 
     func testReduceMotionIsACrossfadeAndFlash() {
         for t in stride(from: 0.0, through: EvolutionEffect.duration(reduceMotion: true), by: 0.05) {
             let f = EvolutionEffect.frame(at: t, reduceMotion: true)
             XCTAssertEqual(f.oldScale, 1); XCTAssertEqual(f.newScale, 1); XCTAssertEqual(f.popScale, 1)
-            XCTAssertEqual(f.whiteness, 0)
+            XCTAssertEqual(f.whiteness, 0); XCTAssertEqual(f.dim, 0)
         }
         XCTAssertEqual(EvolutionEffect.frame(at: 0.25, reduceMotion: true).mix, 0.5, accuracy: 1e-9)
         XCTAssertTrue(EvolutionEffect.frame(at: EvolutionEffect.reducedRevealAt, reduceMotion: true).revealed)
         XCTAssertLessThan(EvolutionEffect.duration(reduceMotion: true), EvolutionEffect.duration)
+    }
+}
+
+// MARK: 입자(순수 — 빛 층 안에 머무나·결정적인가)
+
+final class CelebrationParticleTests: XCTestCase {
+    private func assertInside(_ particles: [CelebrationFX.Particle], _ label: String,
+                              file: StaticString = #filePath, line: UInt = #line) {
+        for p in particles where p.opacity > 0.01 {
+            let r = (p.x * p.x + p.y * p.y).squareRoot() + p.size / 2
+            XCTAssertLessThanOrEqual(r, Double(CelebrationFX.overflow) / 2 + 1e-9,
+                                     "\(label): (\(p.x), \(p.y)) 가 빛 층 밖 — 잘린다", file: file, line: line)
+        }
+    }
+
+    /// 칸 밖으로 넘치는 입자도 빛 층(`overflow` 배) 안에서 사라진다 — 헤더 오버레이·펫 빛 층 창에서 잘리지 않게.
+    func testEveryParticleSystemStaysInsideTheLightLayer() {
+        for t in stride(from: 0.0, through: 1.6, by: 0.02) {
+            for r in rarities {
+                let p = HatchEffect.profile(for: r)
+                assertInside(CelebrationFX.debris(seed: UInt64(11 + p.fragments), count: p.fragments, at: t,
+                                                  speed: 1.1...2.2, spread: 1.45, gravity: 2.6, drag: 3.0, life: 0.95,
+                                                  origin: (0, -0.08)), "껍질 \(r)")
+                assertInside(CelebrationFX.burst(seed: 53, count: p.sparkles, at: t, reach: p.burst / 2 * 0.85),
+                             "반짝이 \(r)")
+            }
+            assertInside(CelebrationFX.risingMotes(seed: 31, count: 18, at: t, from: 0, until: 1.5), "티끌")
+            assertInside(CelebrationFX.converging(seed: 7, count: 22, at: t, from: 0, until: 1.6), "모이는 빛")
+            assertInside(CelebrationFX.debris(seed: 5, count: 5, at: t, speed: 1.5...1.9, spread: 0.95, gravity: 2.8,
+                                              drag: 2.6, life: 0.62, origin: (0, 0.02), size: 0.13...0.16,
+                                              shape: .star), "딸깍 별")
+        }
+    }
+
+    func testParticlesAreDeterministicAndFadeOut() {
+        let a = CelebrationFX.burst(seed: 3, count: 10, at: 0.3, reach: 0.8)
+        XCTAssertEqual(a, CelebrationFX.burst(seed: 3, count: 10, at: 0.3, reach: 0.8), "같은 연출은 같은 배치")
+        XCTAssertNotEqual(a, CelebrationFX.burst(seed: 4, count: 10, at: 0.3, reach: 0.8))
+        XCTAssertTrue(CelebrationFX.burst(seed: 3, count: 10, at: 2, reach: 0.8).isEmpty, "수명이 끝나면 없다")
+        XCTAssertTrue(CelebrationFX.debris(seed: 3, count: 10, at: -0.1, speed: 1...2).isEmpty, "터지기 전엔 없다")
+        // 파편은 중력으로 떨어진다(나중이 더 아래).
+        let early = CelebrationFX.debris(seed: 3, count: 6, at: 0.2, speed: 1...2, life: 2)
+        let late = CelebrationFX.debris(seed: 3, count: 6, at: 0.8, speed: 1...2, life: 2)
+        XCTAssertGreaterThan(late.map(\.y).reduce(0, +), early.map(\.y).reduce(0, +))
+    }
+
+    /// 플로팅 펫의 빛 층 창은 펫 스프라이트 칸(펫 창 아래쪽 가운데) 중심에 overflow 배로 놓인다.
+    @MainActor
+    func testFloatingEffectPanelIsCenteredOnThePetSprite() {
+        let pet = NSRect(x: 100, y: 200, width: 160, height: 200)   // 말풍선으로 키가 커진 펫 창
+        let frame = FloatingPetController.effectFrame(petPanelFrame: pet, petSize: 128)
+        XCTAssertEqual(frame.width, 128 * CelebrationFX.overflow, accuracy: 1e-9)
+        XCTAssertEqual(frame.midX, pet.midX, accuracy: 1e-9)
+        XCTAssertEqual(frame.midY, 200 + 64, accuracy: 1e-9, "스프라이트 칸 중심(창 아래쪽)")
     }
 }
 
@@ -474,6 +552,116 @@ private final class FakeQueue: CelebrationQueue {
     init(_ items: [CompanionStore.Celebration]) { pendingCelebrations = items }
     func consumeCelebration() -> CompanionStore.Celebration? {
         pendingCelebrations.isEmpty ? nil : pendingCelebrations.removeFirst()
+    }
+}
+
+// MARK: 공유 재생(헤더 + 플로팅 펫)
+
+@MainActor
+final class CelebrationStageTests: XCTestCase {
+    private final class Clock { var now = Date(timeIntervalSince1970: 1_700_000_000) }
+
+    private func stage(_ line: EvoLine) async -> (CompanionStore, CelebrationStage, Clock) {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("celebration-stage-\(UUID()).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let store = CompanionStore(provider: StubProvider(value: line), clock: { now }, fileURL: url,
+                                   rng: SeededRNG(seed: 7), dittoDisguiseRollingEnabled: false)
+        let clock = Clock()
+        let stage = store.celebrationStage!
+        stage.schedulesTimers = false
+        stage.clock = { clock.now }
+        stage.reduceMotion = { false }
+        await store.hatch(baseID: 1)
+        return (store, stage, clock)
+    }
+
+    /// 아무 화면도 안 보면 시작하지 않고 큐에 남는다(팝오버 닫힘 + 펫 꺼짐).
+    func testNothingPlaysWithoutAViewer() async {
+        let (store, stage, _) = await stage(linear(1, count: 2, rarity: .rare))
+        stage.kick()
+        XCTAssertNil(stage.active)
+        XCTAssertEqual(store.pendingCelebrations.count, 1)
+    }
+
+    /// 헤더와 펫이 함께 보면 재생은 하나 — 같은 시작 시각, 공개 때 정확히 한 번 꺼낸다. 한쪽이 사라져도 계속.
+    func testTwoSurfacesShareOnePlaybackAndConsumeOnce() async {
+        let (store, stage, clock) = await stage(linear(1, count: 2, rarity: .rare))
+        let header = UUID(), pet = UUID()
+        stage.attach(pet)
+        let started = stage.active
+        XCTAssertNotNil(started)
+        clock.now += 0.5
+        stage.attach(header)
+        XCTAssertEqual(stage.active?.serial, started?.serial, "늦게 연 헤더도 같은 장면을 이어서 본다")
+        XCTAssertEqual(stage.active?.start, started?.start)
+        stage.detach(header)
+        XCTAssertNotNil(stage.active, "펫이 아직 보고 있다")
+        clock.now += HatchEffect.profile(for: .rare).revealAt
+        stage.tick()
+        XCTAssertTrue(store.pendingCelebrations.isEmpty, "공개 때 한 번 꺼냈다")
+        clock.now += 5
+        stage.tick()
+        XCTAssertNil(stage.active)
+        XCTAssertTrue(store.pendingCelebrations.isEmpty)
+    }
+
+    /// 공개 전에 보던 화면이 전부 사라지면 다음 시작은 처음부터(같은 연출을 다시).
+    func testAllSurfacesGoneBeforeTheRevealReplaysFromTheStart() async {
+        let (store, stage, clock) = await stage(linear(1, count: 2, rarity: .legendary))
+        let header = UUID()
+        stage.attach(header)
+        clock.now += 1
+        stage.tick()
+        stage.detach(header)
+        XCTAssertNil(stage.active)
+        XCTAssertEqual(store.pendingCelebrations.count, 1, "아직 안 꺼냈다")
+        clock.now += 60
+        stage.attach(UUID())
+        XCTAssertEqual(stage.active?.start, clock.now, "처음부터 다시")
+    }
+
+    func testAllSurfacesGoneAfterTheRevealDoesNotReplay() async {
+        let (store, stage, clock) = await stage(linear(1, count: 2))
+        let pet = UUID()
+        stage.attach(pet)
+        clock.now += HatchEffect.profile(for: .common).revealAt + 0.1
+        stage.tick()
+        stage.detach(pet)
+        XCTAssertTrue(store.pendingCelebrations.isEmpty)
+        stage.attach(UUID())
+        XCTAssertNil(stage.active, "다시 재생하지 않는다")
+    }
+
+    /// 재생이 끝나면 다음 연출로 넘어간다(부화 → 졸업).
+    func testFinishedCelebrationStartsTheNextOne() async {
+        let (store, stage, clock) = await stage(linear(1, count: 1))
+        store.applyUsage(10_000_000_000)   // 즉시 졸업 → [부화, 졸업]
+        XCTAssertEqual(store.pendingCelebrations.count, 2)
+        stage.attach(UUID())
+        clock.now += 10
+        stage.tick()   // 부화: 공개 + 끝
+        guard case .graduate? = stage.active?.kind else { return XCTFail("졸업이 이어져야 한다") }
+        XCTAssertEqual(stage.active?.start, clock.now)
+    }
+
+    /// 큐가 통째로 바뀌면(놓아주기·불러오기) 공개 전의 남 연출을 버린다.
+    func testReplacedQueueAbandonsAStaleScene() async {
+        let (store, stage, _) = await stage(linear(1, count: 2))
+        stage.attach(UUID())
+        XCTAssertNotNil(stage.active)
+        store.consumeCelebration()   // store 가 큐를 바꿨다(applySave·buyFreshEgg 가 부르는 경로)
+        stage.queueReplaced()
+        XCTAssertNil(stage.active, "큐에서 사라진 연출을 끝까지 그리지 않는다")
+    }
+
+    /// 메뉴바·플로팅 펫은 공개 전 연출의 직전 모습을 붙든다 — 대표를 고정했으면 그대로.
+    func testRepresentativeHoldsThePreRevealSprite() async {
+        let (store, _, _) = await stage(linear(1, count: 2))
+        XCTAssertEqual(store.representativeSubject.speciesID, 1)
+        XCTAssertNil(store.heldRepresentativeSubject.speciesID, "부화 공개 전엔 알")
+        XCTAssertTrue(store.floatingPetPlaysCelebrations)
+        store.consumeCelebration()
+        XCTAssertEqual(store.heldRepresentativeSubject.speciesID, 1)
     }
 }
 

@@ -16,6 +16,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private let defaults: UserDefaults
     private var panel: NSPanel?
     private var hoverPanel: NSPanel?
+    /// 연출의 빛 층(섬광·파편·반짝이)을 그리는 클릭 통과 창. 펫 창은 펫 크기라 빛이 칸 밖으로 못 나가므로,
+    /// 재생 중에만 펫 둘레에 `CelebrationFX.overflow` 배 크기로 띄운다 — 펫 창은 움직이거나 커지지 않는다.
+    private var effectPanel: NSPanel?
     private var displayAwake = true
     private var builtAnimated: Bool?
     private var powerObserver: NSObjectProtocol?
@@ -347,6 +350,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             _ = companion.state.eggPrayers   // hover text shows the prayer count
             _ = companion.latestEvent        // hover text shows the latest hatch / evolution line
             _ = companion.representativeSubject
+            _ = companion.celebrationStage.active   // 연출 빛 층 창을 띄우고 거둔다
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -637,6 +641,48 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
                    display: true)
         p.orderFrontRegardless()
         if hoverPanel?.isVisible == true { showHoverCallout() }
+        syncEffectPanel()
+    }
+
+    /// 펫이 보이고 지금 개체를 보여 주는 중(대표 자동 추적)이며 연출이 재생 중일 때만 빛 층 창을 띄운다.
+    private func syncEffectPanel() {
+        guard let pet = panel, pet.isVisible, companion.floatingPetPlaysCelebrations,
+              companion.celebrationStage.active != nil else {
+            effectPanel?.orderOut(nil)
+            effectPanel?.contentView = nil
+            return
+        }
+        let petSize = CGFloat(store.floatingPetSize)
+        let e = effectPanel ?? makeEffectPanel()
+        effectPanel = e
+        if e.contentView == nil {
+            e.contentView = NSHostingView(rootView: CelebrationEffectOverlay(stage: companion.celebrationStage,
+                                                                             size: petSize))
+        }
+        e.setFrame(Self.effectFrame(petPanelFrame: pet.frame, petSize: petSize), display: true)
+        e.order(.above, relativeTo: pet.windowNumber)
+    }
+
+    /// 빛 층 창의 자리 — 펫 스프라이트 칸(펫 창 아래쪽 가운데) 중심에 overflow 배. 순수·테스트용.
+    static func effectFrame(petPanelFrame: NSRect, petSize: CGFloat) -> NSRect {
+        let side = petSize * CelebrationFX.overflow
+        let center = NSPoint(x: petPanelFrame.midX, y: petPanelFrame.minY + petSize / 2)
+        return NSRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
+    }
+
+    private func makeEffectPanel() -> NSPanel {
+        let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
+                        backing: .buffered, defer: false)
+        p.isOpaque = false
+        p.backgroundColor = .clear
+        p.hasShadow = false
+        p.level = .floating
+        p.collectionBehavior = [.canJoinAllSpaces, .fullScreenAuxiliary, .ignoresCycle]
+        p.ignoresMouseEvents = true   // 드래그·클릭·쓰다듬기는 그대로 펫 창으로
+        p.hidesOnDeactivate = false
+        p.isReleasedWhenClosed = false
+        p.animationBehavior = .none
+        return p
     }
 
     private func petWasStroked() {
@@ -685,6 +731,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         // A hidden pet comes back at home, not where it last ran to.
         runPhase = .home
         runGeneration += 1
+        effectPanel?.orderOut(nil)
+        effectPanel?.contentView = nil
         guard let p = panel else { return }
         p.orderOut(nil)
         p.contentView = nil
@@ -816,6 +864,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
+        if let e = effectPanel, e.isVisible {
+            e.setFrame(Self.effectFrame(petPanelFrame: p.frame, petSize: CGFloat(store.floatingPetSize)), display: false)
+        }
         panelDidMove(panelOrigin: p.frame.origin,
                      userDragging: (p.contentView as? PetHostingView)?.isDragging ?? false)
         if hoverPanel?.isVisible == true { showHoverCallout() }
@@ -1026,10 +1077,14 @@ struct FloatingPetView: View {
     var hearts = PetHeartState()
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
+    /// 헤더와 같은 연출 재생의 관객 표시(`CelebrationStage`).
+    @State private var viewerID = UUID()
 
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
-        let subject = companion.representativeSubject
+        // 공개 전인 연출이 있으면 그 직전 모습(알·옛 단계·위장체)을 붙든다 — 헤더와 같은 규칙.
+        let subject = companion.heldRepresentativeSubject
+        let plays = companion.floatingPetPlaysCelebrations
         let bubble = FloatingPetController.bubble(limitAlert: store.currentBubbleAlert, agent: agent.summary)
         VStack(spacing: 8) {
             if let bubble {
@@ -1038,10 +1093,18 @@ struct FloatingPetView: View {
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
-                       shiny: subject.isShiny,
-                       minFrameDelay: store.animationQuality.frameFloor, spriteStore: spriteStore, form: subject.form,
-                       back: companion.facesBack, reportsVisibleTop: true)
+            Group {
+                if plays, let active = companion.celebrationStage.active {
+                    // 빛 층은 컨트롤러가 띄우는 클릭 통과 창(`effectPanel`)에 — 여긴 칸 안의 스프라이트 층.
+                    CelebrationStageView(active: active, size: size, layer: .sprite, spriteStore: spriteStore,
+                                         minFrameDelay: store.animationQuality.frameFloor, bob: false)
+                } else {
+                    SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
+                               shiny: subject.isShiny,
+                               minFrameDelay: store.animationQuality.frameFloor, spriteStore: spriteStore,
+                               form: subject.form, back: companion.facesBack, reportsVisibleTop: true)
+                }
+            }
                 // One-shot wobble per prayer; keyframes run once per trigger change, never in a loop.
                 .keyframeAnimator(initialValue: 0.0, trigger: burst.wobbleCount) { sprite, angle in
                     sprite.rotationEffect(.degrees(angle))
@@ -1080,6 +1143,13 @@ struct FloatingPetView: View {
                    value: bubble)
         .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
                    value: hearts.isShowing)
+        // 대표를 고정해 두면 펫은 지금 개체를 안 보여 주므로 관객에서 빠진다.
+        .onAppear { if plays { companion.celebrationStage.attach(viewerID) } }
+        .onDisappear { companion.celebrationStage.detach(viewerID) }
+        .onChange(of: plays) { _, now in
+            if now { companion.celebrationStage.attach(viewerID) } else { companion.celebrationStage.detach(viewerID) }
+        }
+        .onChange(of: companion.celebrationSeq) { companion.celebrationStage.kick() }
     }
 
     /// `sulkIdle` > 0 appends how long the companion has been sulking: hours below 48 h, days from there.
@@ -1362,5 +1432,18 @@ struct HeartBubbleView: View {
         }
         .frame(width: CGFloat(rows[0].count) * pixel, height: HeartBubbleArt.height)
         .accessibilityLabel(l.floatingPetHeartsLabel)
+    }
+}
+
+/// 플로팅 펫 둘레의 클릭 통과 창에 그리는 연출 빛 층 — 펫 창과 같은 공유 재생을 같은 시각으로 그린다.
+@MainActor
+struct CelebrationEffectOverlay: View {
+    let stage: CelebrationStage
+    let size: CGFloat
+
+    var body: some View {
+        if let active = stage.active {
+            CelebrationStageView(active: active, size: size, layer: .light)
+        }
     }
 }

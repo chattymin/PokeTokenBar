@@ -1,4 +1,5 @@
-import Foundation
+import AppKit
+import SwiftUI
 
 /// 연출 큐 — 헤더가 들여다보고 꺼내는 쪽. `CompanionStore` 가 구현하고, 테스트는 같은 store 로 돌린다.
 @MainActor
@@ -21,7 +22,7 @@ struct CelebrationPlayer: Equatable {
     typealias Celebration = CompanionStore.Celebration
 
     /// 칸에 그릴 스프라이트 하나(종 nil = 알).
-    struct Sprite: Equatable {
+    struct Sprite: Hashable {
         var speciesID: Int?
         var shiny = false
         var form: PokemonForm?
@@ -51,6 +52,8 @@ struct CelebrationPlayer: Equatable {
         /// 큐에서 꺼내는 시각(시작 기준) — 부화·진화·리빌은 공개 순간, 졸업은 끝.
         let consumeAt: TimeInterval
         let duration: TimeInterval
+        /// 시작할 때의 "동작 줄이기" — 타이밍과 그림이 같은 값을 쓰도록 한 번 정해 둔다.
+        var reduceMotion = false
         var consumed = false
     }
 
@@ -73,8 +76,12 @@ struct CelebrationPlayer: Equatable {
         serial += 1
         let (kind, consumeAt, duration) = Self.plan(front, next: next, current: current, reduceMotion: reduceMotion)
         active = Active(serial: serial, celebration: front, kind: kind, start: now,
-                        consumeAt: consumeAt, duration: duration)
+                        consumeAt: consumeAt, duration: duration, reduceMotion: reduceMotion)
     }
+
+    /// 보던 화면이 전부 사라졌다 — 재생을 버린다. 공개 전이면 연출은 큐에 남아 다음 시작이 처음부터 다시
+    /// 재생하고, 공개 뒤면 이미 꺼냈으므로 남은 꼬리만 잃는다.
+    mutating func reset() { active = nil }
 
     /// 다음으로 깨어나야 할 시각(꺼낼 때 또는 끝날 때). 재생 중이 아니면 nil.
     var nextDeadline: Date? {
@@ -170,6 +177,143 @@ struct CelebrationPlayer: Equatable {
                                          back: current.back),
                         ditto: Sprite(speciesID: PokemonOdds.dittoSpeciesID, shiny: shiny, back: current.back)),
                     DittoRevealEffect.revealAt, DittoRevealEffect.duration(reduceMotion: reduceMotion))
+        }
+    }
+}
+
+// MARK: - 공유 재생(헤더 + 플로팅 펫)
+
+/// 연출 재생 한 벌 — 팝오버 헤더와 플로팅 펫이 **함께** 본다. 화면마다 따로 재생하면 같은 연출을 두 번 보거나
+/// 한쪽이 먼저 큐에서 꺼내 다른 쪽이 결과만 보게 된다. 그래서 "무엇을, 언제부터" 를 store 가 가진 이 객체
+/// 하나에 두고, 보이는 화면은 같은 시작 시각 기준 경과 시간으로 같은 장면을 그린다.
+///
+/// - 보이는 화면(`attach`)이 하나라도 있어야 시작한다. 아무도 안 보면 큐에 남아 기다린다.
+/// - 꺼내는 시각은 `CelebrationPlayer` 규칙 그대로(공개 순간·끝) — 정확히 한 번.
+/// - 보던 화면이 전부 사라지면(`detach`) 재생을 버린다(`CelebrationPlayer.reset`).
+/// 저장하지 않는 상태다(앱을 다시 켜면 큐도 비어 있다).
+@MainActor
+@Observable
+final class CelebrationStage {
+    private(set) var player = CelebrationPlayer()
+    @ObservationIgnored private weak var store: CompanionStore?
+    @ObservationIgnored private var viewers: Set<UUID> = []
+    @ObservationIgnored private var timer: Task<Void, Never>?
+    @ObservationIgnored var clock: () -> Date = Date.init
+    @ObservationIgnored var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
+    /// 테스트는 false 로 두고 `tick()` 을 직접 부른다(가짜 시계로 결정적으로).
+    @ObservationIgnored var schedulesTimers = true
+
+    init(store: CompanionStore) { self.store = store }
+
+    var active: CelebrationPlayer.Active? { player.active }
+    var viewerCount: Int { viewers.count }
+
+    /// 지금 칸에 보일 "평소" 모습 — 재생 중이 아니면 큐 맨 앞 연출의 직전 모습(결과를 먼저 말하지 않게).
+    var currentSprite: CelebrationPlayer.Sprite {
+        guard let store else { return CelebrationPlayer.Sprite() }
+        return CelebrationPlayer.Sprite(speciesID: store.currentSpeciesID, shiny: store.currentIsShiny,
+                                        form: store.currentForm, back: store.facesBack)
+    }
+
+    var idleSprite: CelebrationPlayer.Sprite {
+        guard let store else { return currentSprite }
+        return player.idleSprite(queue: store, current: currentSprite)
+    }
+
+    func attach(_ id: UUID) {
+        viewers.insert(id)
+        kick()
+    }
+
+    func detach(_ id: UUID) {
+        viewers.remove(id)
+        guard viewers.isEmpty else { return }
+        timer?.cancel()
+        timer = nil
+        player.reset()
+    }
+
+    /// 보는 화면이 있고 쉬고 있으면 큐 맨 앞을 시작한다. 새 연출이 쌓였을 때도 부른다.
+    func kick() {
+        guard !viewers.isEmpty, let store else { return }
+        if player.active == nil {
+            player.startIfIdle(queue: store, current: currentSprite, reduceMotion: reduceMotion(), now: clock())
+        }
+        schedule()
+    }
+
+    /// 큐를 store 가 통째로 바꿨다(세이브 불러오기·놓아주기). 공개 전에 재생 중이던 연출이 큐에서 사라졌으면
+    /// 그 장면을 버리고 새 맨 앞으로 — 남의 연출을 끝까지 그리지 않는다.
+    func queueReplaced() {
+        guard let store, let a = player.active, !a.consumed,
+              store.pendingCelebrations.first != a.celebration else { return }
+        player.reset()
+        kick()
+    }
+
+    /// 마감(공개·끝)에 깨어나 단계를 넘긴다.
+    func tick() {
+        guard let store else { return }
+        let events = player.advance(queue: store, now: clock())
+        if events.contains(.finished) { kick() } else { schedule() }
+    }
+
+    private func schedule() {
+        timer?.cancel()
+        timer = nil
+        guard schedulesTimers, let deadline = player.nextDeadline else { return }
+        timer = Task { @MainActor [weak self] in
+            let wait = deadline.timeIntervalSinceNow
+            if wait > 0 { try? await Task.sleep(for: .seconds(wait)) }
+            guard !Task.isCancelled else { return }
+            self?.tick()
+        }
+    }
+}
+
+extension CompanionStore {
+    /// 메뉴바·플로팅 펫이 그릴 대표 모습 — 자동 추적(대표 미지정)이면 아직 공개 전인 연출의 직전 모습(알·옛 단계·
+    /// 위장체)을 붙든다. 팝오버도 펫도 안 보는 동안엔 연출이 기다리므로, 그때까지 결과를 먼저 보여 주지 않는다.
+    /// 클릭 판정(알 기도/팝오버) 같은 동작은 실제 `representativeSubject` 를 그대로 쓴다.
+    var heldRepresentativeSubject: RepresentativeSubject {
+        guard state.representativeSpeciesID == nil, let front = pendingCelebrations.first else {
+            return representativeSubject
+        }
+        let current = CelebrationPlayer.Sprite(speciesID: currentSpeciesID, shiny: currentIsShiny, form: currentForm)
+        let held = CelebrationPlayer.spriteBefore(front, current: current)
+        return RepresentativeSubject(speciesID: held.speciesID, isShiny: held.shiny, form: held.form)
+    }
+
+    /// 플로팅 펫이 연출을 함께 재생하나 — 대표를 고정해 두었으면 펫은 지금 개체를 안 보여 주므로 빠진다.
+    var floatingPetPlaysCelebrations: Bool { state.representativeSpeciesID == nil }
+}
+
+/// 재생 중인 연출 한 장면을 화면에 그린다 — 헤더·플로팅 펫 공용. 스프라이트 뷰는 연출마다 한 번 만들고
+/// (TimelineView 가 매 프레임 클로저를 다시 돌려도 SpriteView.init 의 캐시 조회가 매 프레임 돌지 않게),
+/// 경과 시간은 공유 시작 시각에서 잰다 — 두 화면이 같은 순간을 그린다.
+@MainActor
+struct CelebrationStageView: View {
+    let active: CelebrationPlayer.Active
+    var size: CGFloat
+    var layer: CelebrationLayer
+    var spriteStore: SpriteStore = .shared
+    /// 플로팅 펫의 프레임 하한(배터리 규율) — 헤더는 0.
+    var minFrameDelay: TimeInterval = 0
+    var bob = true
+
+    var body: some View {
+        // 빛 층도 스프라이트가 필요할 수 있다(부화의 윗뚜껑 = 알 그림) — 층마다 한 번씩만 만든다.
+        let sprites: [CelebrationPlayer.Sprite: AnyView] = Dictionary(Set(active.kind.sprites).map { s in
+                (s, AnyView(SpriteView(speciesID: s.speciesID, size: size, bob: bob, animated: true, shiny: s.shiny,
+                                       minFrameDelay: minFrameDelay, spriteStore: spriteStore, form: s.form,
+                                       back: s.back)))
+            }, uniquingKeysWith: { a, _ in a })
+        let start = active.start
+        let kind = active.kind
+        let reduce = active.reduceMotion
+        TimelineView(.animation) { context in
+            CelebrationSequenceView(kind: kind, elapsed: max(0, context.date.timeIntervalSince(start)), size: size,
+                                    reduceMotion: reduce, layer: layer, sprites: sprites)
         }
     }
 }
