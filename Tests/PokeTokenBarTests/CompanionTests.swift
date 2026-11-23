@@ -1729,9 +1729,10 @@ final class CompanionIdentityTests: XCTestCase {
         let thr = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
         s.applyUsage(thr)
         XCTAssertEqual(s.celebrationSeq, 2)
-        let shiny = s.currentIsShiny
-        XCTAssertEqual(s.celebration, .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil),
-                       "진화 연출은 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다)")
+        // 진화 연출은 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다).
+        guard case .evolve(1, 2, s.currentIsShiny, nil, _) = s.celebration else {
+            return XCTFail("1→2 진화 연출이어야 함: \(String(describing: s.celebration))")
+        }
     }
 
     /// [회귀] 라인 미로딩(재시작 직후/오프라인) 중 델타가 유실되지 않고 적립, 라인 로드 후 진화 판정.

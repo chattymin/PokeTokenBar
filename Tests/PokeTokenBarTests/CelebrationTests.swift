@@ -185,26 +185,26 @@ final class CelebrationQueueTests: XCTestCase {
             let s = store(linear(1, count: 2, rarity: r))
             await s.hatch(baseID: 1)
             XCTAssertEqual(s.pendingCelebrations, [.hatch(shiny: s.currentIsShiny, rarity: r)])
-            XCTAssertTrue(s.hasPendingHatch)
-            XCTAssertFalse(s.hasPendingEvolve)
+            XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .egg, "부화 전엔 알 문구로 가린다")
         }
     }
 
-    /// 알을 사서 지금 개체를 놓아주면 그 개체의 대기 연출도 버린다(새 알 위에서 옛 진화가 재생되지 않게).
-    func testReleasingForAFreshEggDropsPendingCelebrations() async throws {
-        let url = FileManager.default.temporaryDirectory.appendingPathComponent("celebration-release-\(UUID()).json")
-        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
-        let active = #"{"baseID":1,"pathIDs":[1],"plannedPathIDs":[1,2,3],"stageIndex":0,"usedAtStage":0,"rarity":"common","totalForms":3}"#
-        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":5000000000,\"lastDate\":\"d1\",\"active\":\(active),\"dex\":[]}"
-        try Data(json.utf8).write(to: url)
-        let s = CompanionStore(provider: StubProvider(value: linear(1, count: 3)), clock: { now }, fileURL: url,
-                               rng: SeededRNG(seed: 3), dittoDisguiseRollingEnabled: false)
+    /// 알을 사서 지금 개체를 놓아주면 **그 개체의** 대기 연출(마지막 졸업 뒤)만 버린다 — 앞선 개체의
+    /// 부화·졸업은 도감에 남은 일이라 그대로 재생한다.
+    func testReleasingForAFreshEggDropsOnlyTheReleasedIndividualsCelebrations() async {
+        let s = store(linear(1, count: 3), seed: 11)
         tick(s, tokens: 0)
-        for _ in 0..<200 where s.currentLine == nil { await Task.yield() }
-        s.applyUsage(s.threshold)
-        XCTAssertEqual(s.pendingCelebrations, [.evolve(fromID: 1, toID: 2, shiny: false, form: nil)])
+        tick(s, tokens: 9_000_000_000)          // 부화 이월로 즉시 졸업 → [부화1, 졸업1]
+        await s.hatchIfNeeded()
+        XCTAssertNil(s.state.active)
+        tick(s, tokens: 9_010_000_000)          // 새 알 10M → 부화2(이월 5M, 진화 없음)
+        await s.hatchIfNeeded()
+        XCTAssertNotNil(s.state.active)
+        XCTAssertEqual(s.pendingCelebrations.count, 3)
+        let before = Array(s.pendingCelebrations.prefix(2))
+        guard case .graduate = before[1] else { return XCTFail("부화1 → 졸업1 → 부화2 여야 함") }
         XCTAssertTrue(s.buyFreshEgg())
-        XCTAssertTrue(s.pendingCelebrations.isEmpty)
+        XCTAssertEqual(s.pendingCelebrations, before, "놓아준 개체의 부화만 빠진다")
     }
 
     /// 위장 메타몽(rare)은 위장 라인의 등급(common)으로 깨진다 — 연출이 정체를 누설하면 안 된다.
@@ -244,19 +244,25 @@ final class CelebrationQueueTests: XCTestCase {
     /// (진화를 합치지 않는다 — 사용자 결정. 상한 6 이 이 묶음을 다 담는다.)
     func testChainedEvolutionsAndGraduationQueueInOrder() async {
         let s = store(linear(1, count: 3))
+        s.setLanguage(.en)
         await s.hatch(baseID: 1)
         let shiny = s.currentIsShiny
         XCTAssertEqual(s.consumeCelebration(), .hatch(shiny: shiny, rarity: .common))
-        XCTAssertFalse(s.hasPendingHatch)
+        XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations))
         s.applyUsage(10_000_000_000)
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.pendingCelebrations, [
-            .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil),
-            .evolve(fromID: 2, toID: 3, shiny: shiny, form: nil),
+            .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil, fromName: "P1"),
+            .evolve(fromID: 2, toID: 3, shiny: shiny, form: nil, fromName: "P2"),
             .graduate(speciesID: 3, shiny: shiny, form: nil),
         ])
-        XCTAssertTrue(s.hasPendingEvolve)
-        XCTAssertFalse(s.hasPendingHatch)
+        // 졸업으로 라인이 비었어도 옛 단계 이름은 페이로드에 있어 정보 칸이 비지 않는다.
+        XCTAssertNil(s.currentLine)
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P1", rarity: nil))
+        s.consumeCelebration()
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P2", rarity: nil))
+        s.consumeCelebration()
+        XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations), "졸업은 가리지 않는다")
     }
 
     /// 부화 이월로 진화·졸업까지 가면: 이월 진화는 버리고(부화 공개가 덮는다) 부화 → 졸업.
@@ -274,13 +280,14 @@ final class CelebrationQueueTests: XCTestCase {
     /// 상한을 넘으면 오래된 것부터 버린다 — 남는 건 지금 상태로 이어지는 최근 연출.
     func testQueueCapDropsTheOldestCelebrations() async {
         let s = store(linear(1, count: 9))
+        s.setLanguage(.en)
         await s.hatch(baseID: 1)
         s.applyUsage(1_000_000_000_000)   // 진화 8 + 졸업 1 (+ 앞의 부화 1) = 10
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.pendingCelebrations.count, CompanionStore.celebrationQueueCap)
         XCTAssertEqual(s.pendingCelebrations.last, .graduate(speciesID: 9, shiny: s.state.dex[0].isShiny, form: nil))
         XCTAssertEqual(s.pendingCelebrations.first,
-                       .evolve(fromID: 4, toID: 5, shiny: s.state.dex[0].isShiny, form: nil))
+                       .evolve(fromID: 4, toID: 5, shiny: s.state.dex[0].isShiny, form: nil, fromName: "P4"))
         XCTAssertGreaterThanOrEqual(CompanionStore.celebrationQueueCap, 3, "진화 2회 + 졸업이 한 번에 들어가야 한다")
     }
 
@@ -290,39 +297,205 @@ final class CelebrationQueueTests: XCTestCase {
         XCTAssertNil(s.consumeCelebration())
         await s.hatch(baseID: 1)
         let seq = s.celebrationSeq
-        XCTAssertTrue(s.hasPendingHatch)
         XCTAssertNotNil(s.consumeCelebration())
         XCTAssertNil(s.consumeCelebration())
         XCTAssertNil(s.celebration)
-        XCTAssertFalse(s.hasPendingHatch)
         XCTAssertEqual(s.celebrationSeq, seq, "꺼내기는 새 연출 신호가 아니다")
     }
 
-    func testLineSpeciesNameNamesTheOldStageForTheEvolveCaption() async {
-        let s = store(linear(1, count: 3))
-        XCTAssertNil(s.lineSpeciesName(1, form: nil), "라인 없음")
-        await s.hatch(baseID: 1)
+    /// 위장 메타몽이 부화하고, 팝오버를 열기 전에 리빌 임계까지 가면 [부화, 리빌] 이 쌓인다. 재생 시점의
+    /// 상태는 이미 메타몽이지만 위장 모습이 먼저 나와야 한다 — 부화 공개 = 위장체, 정보 칸 = 위장체 이름·등급.
+    func testHatchThenDittoRevealShowsTheDisguiseFirst() async throws {
+        var seed: UInt64?
+        for candidate: UInt64 in 0..<200_000 {
+            var rng = SeededRNG(seed: candidate)
+            _ = rng.next(); _ = rng.next()   // shiny, nature
+            if rng.next() % PokemonOdds.dittoDisguiseDenominator == 0 { seed = candidate; break }
+        }
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("celebration-ditto-\(UUID()).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let s = CompanionStore(provider: DittoOrLineProvider(line: linear(1, count: 3)), clock: { now }, fileURL: url,
+                               rng: SeededRNG(seed: try XCTUnwrap(seed)), dittoDisguiseRollingEnabled: true)
         s.setLanguage(.en)
-        XCTAssertEqual(s.lineSpeciesName(2, form: nil), "P2")
-        XCTAssertNil(s.lineSpeciesName(99, form: nil), "라인 밖 종")
+        await s.hatch(baseID: 1)
+        XCTAssertNotNil(s.state.active?.dittoDisguise)
+        s.applyUsage(s.threshold)                       // 첫 진화 임계 → 진화 대신 리빌
+        for _ in 0..<200 where !(s.state.active?.dittoRevealed ?? false) { await Task.yield() }
+        XCTAssertEqual(s.currentSpeciesID, PokemonOdds.dittoSpeciesID, "상태는 이미 메타몽")
+        let shiny = s.state.active?.isShiny ?? false
+        let disguise = CompanionStore.DittoDisguise(speciesID: 1, form: nil, name: "P1", rarity: .common)
+        XCTAssertEqual(s.pendingCelebrations, [.hatch(shiny: false, rarity: .common),
+                                               .dittoReveal(shiny: shiny, disguise: disguise)])
+
+        let current = CelebrationPlayer.Sprite(speciesID: PokemonOdds.dittoSpeciesID, shiny: shiny)
+        var player = CelebrationPlayer()
+        player.startIfIdle(queue: s, current: current, reduceMotion: false, now: now)
+        guard case .hatch(_, _, let reveal)? = player.active?.kind else { return XCTFail("부화부터") }
+        XCTAssertEqual(reveal, CelebrationPlayer.Sprite(speciesID: 1), "부화 공개는 위장체(이로치 숨김)")
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .egg)
+        _ = player.advance(queue: s, now: now.addingTimeInterval(HatchEffect.profile(for: .common).revealAt))
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations),
+                       .subject(name: "P1", rarity: .common), "부화 공개 뒤에도 리빌 전까진 위장체 이름·등급")
+        _ = player.advance(queue: s, now: now.addingTimeInterval(10))
+        player.startIfIdle(queue: s, current: current, reduceMotion: false, now: now.addingTimeInterval(10))
+        XCTAssertEqual(player.active?.kind, .dittoReveal(
+            disguise: CelebrationPlayer.Sprite(speciesID: 1),
+            ditto: CelebrationPlayer.Sprite(speciesID: PokemonOdds.dittoSpeciesID, shiny: shiny)))
+        _ = player.advance(queue: s, now: now.addingTimeInterval(10 + DittoRevealEffect.revealAt))
+        XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations), "리빌 순간부터 메타몽 정보")
+    }
+}
+
+/// 부화 라인은 주어진 것, 메타몽(132)을 물으면 메타몽 라인.
+private struct DittoOrLineProvider: PokeProviding {
+    let line: EvoLine
+    func line(baseSpeciesID: Int) async throws -> EvoLine {
+        guard baseSpeciesID == PokemonOdds.dittoSpeciesID else { return line }
+        return EvoLine(baseID: baseSpeciesID, tree: EvoNode(speciesID: baseSpeciesID, children: []), rarity: .rare,
+                       names: [baseSpeciesID: ["en": "Ditto"]])
+    }
+    func baseSpeciesIndex() async throws -> [BaseSpecies] { [BaseSpecies(id: line.baseID, captureRate: 255)] }
+}
+
+// MARK: 재생 규칙(순수 — 큐에서 언제 꺼내나·무엇을 가리나·끊기면 어떻게 되나)
+
+@MainActor
+final class CelebrationPlayerTests: XCTestCase {
+    typealias Sprite = CelebrationPlayer.Sprite
+
+    private func store(_ line: EvoLine, seed: UInt64 = 7) -> CompanionStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("celebration-player-\(UUID()).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        return CompanionStore(provider: StubProvider(value: line), clock: { now }, fileURL: url,
+                              rng: SeededRNG(seed: seed), dittoDisguiseRollingEnabled: false)
+    }
+
+    private func current(_ s: CompanionStore) -> Sprite {
+        Sprite(speciesID: s.currentSpeciesID, shiny: s.currentIsShiny, form: s.currentForm)
+    }
+
+    /// 시작은 꺼내지 않는다. 공개 순간에 꺼내고(정보 칸도 그때 풀린다), 끝나면 다음 연출로.
+    func testHatchIsConsumedAtTheRevealAndConcealedUntilThen() async {
+        let s = store(linear(1, count: 2, rarity: .legendary))
+        await s.hatch(baseID: 1)
+        let p = HatchEffect.profile(for: .legendary)
+        var player = CelebrationPlayer()
+        player.startIfIdle(queue: s, current: current(s), reduceMotion: false, now: now)
+        XCTAssertEqual(s.pendingCelebrations.count, 1, "시작했다고 꺼내지 않는다")
+        XCTAssertEqual(player.nextDeadline, now.addingTimeInterval(p.revealAt))
+        XCTAssertEqual(player.advance(queue: s, now: now.addingTimeInterval(1)), [])
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .egg, "1초: 아직 가린다")
+        let shiny = s.currentIsShiny
+        XCTAssertEqual(player.advance(queue: s, now: now.addingTimeInterval(p.revealAt)),
+                       [.revealed(.hatch(shiny: shiny, rarity: .legendary))])
+        XCTAssertTrue(s.pendingCelebrations.isEmpty)
+        XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations), "공개 순간부터 보인다")
+        XCTAssertEqual(player.nextDeadline, now.addingTimeInterval(p.duration))
+        XCTAssertEqual(player.advance(queue: s, now: now.addingTimeInterval(p.duration)), [.finished])
+        XCTAssertNil(player.active)
+    }
+
+    /// [회귀] 공개 전에 팝오버가 닫히거나 탭이 바뀌어 헤더가 사라지면(= 플레이어 상태 소실) 다음 마운트가
+    /// 같은 부화를 처음부터 다시 재생한다. 시작할 때 꺼내던 첫 구현은 여기서 연출 없이 결과만 보였다.
+    func testInterruptionBeforeTheRevealReplaysOnTheNextMount() async {
+        let s = store(linear(1, count: 2, rarity: .legendary))
+        await s.hatch(baseID: 1)
+        var first = CelebrationPlayer()
+        first.startIfIdle(queue: s, current: current(s), reduceMotion: false, now: now)
+        _ = first.advance(queue: s, now: now.addingTimeInterval(1))   // 전설 부화 1초 — 공개 전
+        // 헤더 소실: first 를 버린다. 다시 연 헤더는 새 플레이어로 시작한다.
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .egg, "닫혀 있는 동안에도 결과를 안 보인다")
+        var second = CelebrationPlayer()
+        XCTAssertEqual(second.idleSprite(queue: s, current: current(s)), Sprite(speciesID: nil), "칸은 알")
+        second.startIfIdle(queue: s, current: current(s), reduceMotion: false, now: now.addingTimeInterval(60))
+        guard case .hatch(let profile, _, _)? = second.active?.kind else { return XCTFail("부화를 다시 재생해야 한다") }
+        XCTAssertEqual(profile.rarity, .legendary)
+        XCTAssertEqual(second.active?.start, now.addingTimeInterval(60), "처음부터")
+    }
+
+    /// 공개 뒤에 끊기면 이미 꺼냈으므로 다시 나오지 않는다(남은 꼬리만 잃는다).
+    func testInterruptionAfterTheRevealIsNotReplayed() async {
+        let s = store(linear(1, count: 2))
+        await s.hatch(baseID: 1)
+        var first = CelebrationPlayer()
+        first.startIfIdle(queue: s, current: current(s), reduceMotion: false, now: now)
+        _ = first.advance(queue: s, now: now.addingTimeInterval(HatchEffect.profile(for: .common).revealAt + 0.1))
+        XCTAssertTrue(s.pendingCelebrations.isEmpty)
+        var second = CelebrationPlayer()
+        second.startIfIdle(queue: s, current: current(s), reduceMotion: false, now: now.addingTimeInterval(60))
+        XCTAssertNil(second.active, "다시 재생하지 않는다")
+        XCTAssertEqual(second.idleSprite(queue: s, current: current(s)), current(s))
+    }
+
+    /// 졸업은 끝에 꺼낸다 — 중간에 끊기면 다음에 몬스터볼부터 다시.
+    func testGraduationIsConsumedAtTheEnd() {
+        let queue = FakeQueue([.graduate(speciesID: 7, shiny: true, form: nil), .hatch(shiny: false, rarity: .rare)])
+        var player = CelebrationPlayer()
+        let cur = Sprite(speciesID: nil, back: true)
+        player.startIfIdle(queue: queue, current: cur, reduceMotion: false, now: now)
+        XCTAssertEqual(player.active?.kind, .graduate(Sprite(speciesID: 7, shiny: true, back: true),
+                                                     egg: Sprite(speciesID: nil, back: true)))
+        XCTAssertEqual(player.advance(queue: queue, now: now.addingTimeInterval(2)), [])
+        XCTAssertEqual(queue.pendingCelebrations.count, 2, "끝나기 전엔 남아 있다")
+        XCTAssertEqual(CelebrationPlayer.concealment(queue.pendingCelebrations), .egg,
+                       "졸업 자체는 안 가리지만 뒤의 부화 때문에 가린다")
+        XCTAssertEqual(player.advance(queue: queue, now: now.addingTimeInterval(GraduationEffect.duration)),
+                       [.revealed(.graduate(speciesID: 7, shiny: true, form: nil)), .finished])
+        XCTAssertEqual(queue.pendingCelebrations, [.hatch(shiny: false, rarity: .rare)])
+    }
+
+    /// 재생 중 큐가 바뀌었으면(세이브 불러오기 등) 남의 연출을 꺼내지 않는다.
+    func testDoesNotConsumeACelebrationItDidNotPlay() {
+        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: false, form: nil, fromName: "A")])
+        var player = CelebrationPlayer()
+        player.startIfIdle(queue: queue, current: Sprite(speciesID: 2), reduceMotion: false, now: now)
+        queue.pendingCelebrations = [.hatch(shiny: false, rarity: .common)]
+        XCTAssertEqual(player.advance(queue: queue, now: now.addingTimeInterval(EvolutionEffect.revealAt)), [])
+        XCTAssertEqual(queue.pendingCelebrations, [.hatch(shiny: false, rarity: .common)])
+        XCTAssertEqual(player.advance(queue: queue, now: now.addingTimeInterval(EvolutionEffect.duration)), [.finished])
+    }
+
+    /// "항상 뒷모습" 이면 연출 속 스프라이트도 뒷모습(알 제외 — 알은 뒷모습이 없어 SpriteView 가 무시한다).
+    func testSpritesKeepTheBackFacingPreference() {
+        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: true, form: nil, fromName: "A")])
+        var player = CelebrationPlayer()
+        player.startIfIdle(queue: queue, current: Sprite(speciesID: 2, shiny: true, back: true),
+                           reduceMotion: true, now: now)
+        XCTAssertEqual(player.active?.kind, .evolve(from: Sprite(speciesID: 1, shiny: true, back: true),
+                                                    to: Sprite(speciesID: 2, shiny: true, back: true)))
+        XCTAssertEqual(player.active?.consumeAt, EvolutionEffect.reducedRevealAt, "동작 줄이기 타이밍")
+    }
+}
+
+/// 테스트용 큐.
+@MainActor
+private final class FakeQueue: CelebrationQueue {
+    var pendingCelebrations: [CompanionStore.Celebration]
+    init(_ items: [CompanionStore.Celebration]) { pendingCelebrations = items }
+    func consumeCelebration() -> CompanionStore.Celebration? {
+        pendingCelebrations.isEmpty ? nil : pendingCelebrations.removeFirst()
     }
 }
 
 // MARK: 칸의 "직전 모습"(순수)
 
 final class CelebrationSpriteBeforeTests: XCTestCase {
-    typealias Sprite = CompanionHeader.CelebrationSprite
+    typealias Sprite = CelebrationPlayer.Sprite
 
     func testSpriteBeforeEachCelebration() {
         let current = Sprite(speciesID: 3, shiny: false, form: nil, back: true)
-        XCTAssertEqual(CompanionHeader.spriteBefore(nil, current: current), current)
-        XCTAssertEqual(CompanionHeader.spriteBefore(.dittoReveal(shiny: true), current: current), current)
-        XCTAssertEqual(CompanionHeader.spriteBefore(.hatch(shiny: true, rarity: .rare), current: current),
-                       Sprite(speciesID: nil), "부화 전엔 알")
-        XCTAssertEqual(CompanionHeader.spriteBefore(.evolve(fromID: 1, toID: 2, shiny: true, form: PokemonForm("sandy")),
-                                                    current: current),
-                       Sprite(speciesID: 1, shiny: true, form: PokemonForm("sandy")), "진화 전엔 옛 모습")
-        XCTAssertEqual(CompanionHeader.spriteBefore(.graduate(speciesID: 9, shiny: false, form: nil), current: current),
-                       Sprite(speciesID: 9), "졸업 전엔 졸업하는 포켓몬")
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(nil, current: current), current)
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(.hatch(shiny: true, rarity: .rare), current: current),
+                       Sprite(speciesID: nil, back: true), "부화 전엔 알")
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(
+                           .evolve(fromID: 1, toID: 2, shiny: true, form: PokemonForm("sandy"), fromName: "A"),
+                           current: current),
+                       Sprite(speciesID: 1, shiny: true, form: PokemonForm("sandy"), back: true), "진화 전엔 옛 모습")
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(.graduate(speciesID: 9, shiny: false, form: nil), current: current),
+                       Sprite(speciesID: 9, back: true), "졸업 전엔 졸업하는 포켓몬")
+        let disguise = CompanionStore.DittoDisguise(speciesID: 412, form: PokemonForm("sandy"), name: "B", rarity: .common)
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(.dittoReveal(shiny: true, disguise: disguise), current: current),
+                       Sprite(speciesID: 412, shiny: false, form: PokemonForm("sandy"), back: true),
+                       "리빌 전엔 위장체(이로치 숨김)")
     }
 }

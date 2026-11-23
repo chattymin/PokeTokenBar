@@ -194,6 +194,21 @@ final class CelebrationRenderTests: XCTestCase {
         }
     }
 
+    func testWriteDittoReveal() async throws {
+        let dir = try outputDirectory()
+        let s = try await sprites([16, PokemonOdds.dittoSpeciesID])
+        let disguise = try XCTUnwrap(s.mons[16]), ditto = try XCTUnwrap(s.mons[PokemonOdds.dittoSpeciesID])
+        for reduce in [false, true] {
+            let r = DittoRevealEffect.revealAt
+            let duration = DittoRevealEffect.duration(reduceMotion: reduce)
+            try render(name: "ditto-reveal\(reduce ? "-reduced" : "")", duration: duration,
+                       strip: [0, r * 0.6, r, r + 0.1, r + 0.3, duration], into: dir) { t in
+                AnyView(DittoRevealEffectView(elapsed: t, reduceMotion: reduce) { self.fitted(disguise) }
+                            ditto: { self.fitted(ditto) })
+            }
+        }
+    }
+
     func testWriteGraduation() async throws {
         let dir = try outputDirectory()
         let s = try await sprites([6])

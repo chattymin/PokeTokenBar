@@ -593,3 +593,61 @@ struct EvolutionEffectView<From: View, To: View>: View {
         .frame(width: size, height: size)
     }
 }
+
+// MARK: - 메타몽 리빌
+
+/// 위장체 → 메타몽 교체를 섬광이 덮고 스프링 팝(🎭 버스트는 헤더가 칸 밖에 띄운다). 예전엔 평소 스프라이트
+/// 위에 플래시만 얹었는데, 큐에 부화와 리빌이 함께 쌓이면 재생 시점의 상태가 이미 메타몽이라 위장 모습이
+/// 한 번도 안 보였다 → 위장체를 직접 그리고 섬광 아래서 바꾼다.
+enum DittoRevealEffect {
+    /// 섬광 최고조 = 교체 순간(정보 칸도 이때 메타몽으로 바뀐다).
+    static let revealAt: TimeInterval = 0.15
+    static let tail: TimeInterval = 0.85
+    static let reducedTail: TimeInterval = 0.5
+
+    static func duration(reduceMotion: Bool) -> TimeInterval { revealAt + (reduceMotion ? reducedTail : tail) }
+
+    struct Frame: Equatable {
+        var revealed = false
+        var flash: Double = 0
+        var popScale: Double = 1
+    }
+
+    static func frame(at t: TimeInterval, reduceMotion: Bool = false) -> Frame {
+        var f = Frame()
+        f.revealed = t >= revealAt
+        guard f.revealed else {
+            f.flash = 0.85 * smoothstep(0, revealAt, t)
+            return f
+        }
+        let tau = t - revealAt
+        let fade = reduceMotion ? reducedTail : tail * 0.95
+        f.flash = 0.85 * pow(1 - clamp01(tau / fade), 2)
+        // 동작 줄이기: 팝 없이 섬광만.
+        f.popScale = reduceMotion ? 1 : 1 - 0.4 * exp(-5 * tau) * cos(9 * tau)
+        return f
+    }
+}
+
+/// 메타몽 리빌 한 순간. `disguise`·`ditto` 는 호출자가 그린다.
+@MainActor
+struct DittoRevealEffectView<Disguise: View, Ditto: View>: View {
+    let elapsed: TimeInterval
+    var size: CGFloat = 76
+    var reduceMotion = false
+    @ViewBuilder var disguise: Disguise
+    @ViewBuilder var ditto: Ditto
+
+    var body: some View {
+        let f = DittoRevealEffect.frame(at: elapsed, reduceMotion: reduceMotion)
+        ZStack {
+            if f.revealed {
+                ditto.scaleEffect(f.popScale)
+            } else {
+                disguise
+            }
+            Color.white.opacity(f.flash).allowsHitTesting(false)
+        }
+        .frame(width: size, height: size)
+    }
+}

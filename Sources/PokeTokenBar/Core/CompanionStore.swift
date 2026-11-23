@@ -28,13 +28,23 @@ final class CompanionStore {
     /// `hatch.rarity` 는 알이 깨지는 연출의 등급 신호다. 위장 메타몽이면 **위장 라인의 등급**을 싣는다
     /// (이름·배지와 같은 값 — 연출이 정체를 먼저 누설하면 안 된다). `graduate` 는 졸업 직전의 최종 종을
     /// 싣는다 — 연출이 재생될 땐 `state.active` 가 이미 새 알이라 상태에서 다시 읽을 수 없다.
-    /// `evolve` 도 같은 이유로 진화 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다).
+    /// `evolve` 도 같은 이유로 진화 전·후 종과 **옛 단계 이름**을 싣는다 — 재생 시점엔 이미 다음 단계이고,
+    /// 같은 갱신에서 졸업까지 갔으면 라인(`currentLine`)마저 비어 이름을 다시 만들 수 없다.
+    /// `dittoReveal` 은 위장체(종·형태·이름·등급)를 싣는다 — 팝오버를 닫아 둔 사이 부화와 리빌이 함께
+    /// 쌓이면 재생 시점의 상태는 이미 메타몽이라, 싣지 않으면 위장 모습을 한 번도 못 본다.
     /// `form` 은 개체의 형태 그대로다 — 종마다 `PokemonForm.resolved` 로 풀리는 건 SpriteView 가 한다.
     enum Celebration: Equatable {
         case hatch(shiny: Bool, rarity: Rarity)
-        case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?)
-        case dittoReveal(shiny: Bool)
+        case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?, fromName: String)
+        case dittoReveal(shiny: Bool, disguise: DittoDisguise)
         case graduate(speciesID: Int, shiny: Bool, form: PokemonForm?)
+    }
+    /// 리빌 직전까지 보이던 위장 모습(위장 중엔 이로치도 숨긴다 — 그래서 shiny 가 없다).
+    struct DittoDisguise: Equatable {
+        let speciesID: Int
+        let form: PokemonForm?
+        let name: String
+        let rarity: Rarity
     }
     /// 한 번의 사용량 갱신이 부화→이월 진화→졸업까지 한꺼번에 낼 수 있어 슬롯 하나로는 앞의 연출이
     /// 덮인다. 헤더가 앞에서부터 하나씩 꺼내 순서대로 재생하는 FIFO 다.
@@ -47,22 +57,6 @@ final class CompanionStore {
     private(set) var celebrationSeq = 0
     /// 다음에 재생될 연출(없으면 nil).
     var celebration: Celebration? { pendingCelebrations.first }
-    /// 재생 대기 중인 부화가 있는가 — 헤더는 그 부화가 재생돼 정체를 드러낼 때까지 새 포켓몬의
-    /// 이름·등급·진화 라인을 가린다(연출보다 먼저 정보 칸이 결과를 말해 버리면 연출이 의미 없다).
-    var hasPendingHatch: Bool {
-        pendingCelebrations.contains { if case .hatch = $0 { true } else { false } }
-    }
-    /// 재생 대기 중인 진화가 있는가 — 부화와 같은 이유로 헤더가 새 단계의 정보를 가린다.
-    var hasPendingEvolve: Bool {
-        pendingCelebrations.contains { if case .evolve = $0 { true } else { false } }
-    }
-    /// 현재 라인 안의 종 이름(형태 반영). 라인이 없거나(졸업 직후) 라인 밖 종이면 nil.
-    /// 진화 연출 동안 헤더가 옛 단계의 이름을 보여 주는 데 쓴다.
-    func lineSpeciesName(_ speciesID: Int, form: PokemonForm?) -> String? {
-        guard let line = currentLine, line.names[speciesID] != nil else { return nil }
-        return formDisplayName(line.localizedName(speciesID, state.language), speciesID: speciesID,
-                               form: PokemonForm.resolved(speciesID: speciesID, form: form))
-    }
     private func fireCelebration(_ c: Celebration) {
         pendingCelebrations.append(c)
         if pendingCelebrations.count > Self.celebrationQueueCap {
@@ -70,7 +64,10 @@ final class CompanionStore {
         }
         celebrationSeq += 1
     }
-    /// 연출을 재생하기 시작할 때 UI 가 호출해 맨 앞을 꺼낸다(1회성 보장 — 재마운트돼도 다시 안 나온다).
+    /// 맨 앞 연출을 꺼낸다. 헤더는 재생을 **시작할 때가 아니라** 공개 순간(부화·진화·리빌) 또는 끝(졸업)에
+    /// 부른다 — 그 전에 팝오버가 닫히거나 탭이 바뀌어 헤더가 사라지면, 연출은 큐에 남아 다음에 처음부터
+    /// 다시 재생된다(꺼낸 뒤 사라지면 결과만 보이고 연출은 영영 안 나온다). 공개 뒤에 끊기면 남은 꼬리만
+    /// 잃는다. 꺼낸 것은 다시 나오지 않는다(1회성).
     @discardableResult
     func consumeCelebration() -> Celebration? {
         pendingCelebrations.isEmpty ? nil : pendingCelebrations.removeFirst()
@@ -1092,7 +1089,7 @@ final class CompanionStore {
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
                 fireCelebration(.evolve(fromID: a.currentID, toID: next.speciesID,
-                                        shiny: a.displaysShiny, form: a.form))
+                                        shiny: a.displaysShiny, form: a.form, fromName: oldName))
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
@@ -1445,8 +1442,10 @@ final class CompanionStore {
         state.pendingForm = nil
         prefetchedLineID = nil
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
-        // 놓아준 개체의 대기 연출도 버린다 — 남기면 다음 오픈에 새 알 위에서 옛 개체의 부화가 재생된다.
-        pendingCelebrations.removeAll()
+        // 놓아준 개체의 대기 연출(마지막 졸업 뒤의 부화·진화·리빌)만 버린다 — 남기면 새 알 위에서 놓아준
+        // 개체의 부화가 재생된다. 그 앞(이전 개체들의 졸업까지)은 도감에 남은 일이라 그대로 재생한다.
+        let lastGraduation = pendingCelebrations.lastIndex { if case .graduate = $0 { true } else { false } }
+        pendingCelebrations.removeSubrange((lastGraduation.map { $0 + 1 } ?? 0)...)
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열
         save()
@@ -1903,6 +1902,10 @@ final class CompanionStore {
         let carryOver = max(0, m.usedAtStage - latestFirstEvoThr)   // 위장체 첫 진화 초과분 → 메타몽 성장 이월
         // 메타몽으로 전환 — rarity/forms 는 로드한 라인에서, isShiny/nature/dittoDisguise 는 유지.
         let previousRarity = m.rarity
+        // 위장체는 진화하지 않으므로 현재 종 = 위장 종. 형태·이름은 아래에서 메타몽으로 바뀌기 전에 잡는다.
+        let disguise = DittoDisguise(
+            speciesID: m.currentID, form: m.form,
+            name: formDisplayName(disguiseName, speciesID: m.currentID, form: m.form), rarity: previousRarity)
         m.baseID = dittoLine.baseID
         let evolutionPlan = makeEvolutionPlan(from: dittoLine.tree, baseID: dittoLine.baseID)
         m.pathIDs = [dittoLine.baseID]
@@ -1924,7 +1927,7 @@ final class CompanionStore {
         state.reconcileRepresentativeSelection()   // 위장 종만 근거였던 선택은 리빌과 함께 제거
         currentLine = dittoLine
         AppLog.write("ditto reveal: disguise=\(m.dittoDisguise ?? -1) → ditto rarity=\(dittoLine.rarity) shiny=\(shiny)")
-        fireCelebration(.dittoReveal(shiny: shiny))
+        fireCelebration(.dittoReveal(shiny: shiny, disguise: disguise))
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(5)
         notifyCompanionEvent(shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
