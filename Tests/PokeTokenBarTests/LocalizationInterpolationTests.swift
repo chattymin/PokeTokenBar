@@ -71,6 +71,11 @@ final class LocalizationInterpolationTests: XCTestCase {
             expect(lang, "intervalLabel", l.intervalLabel(1860), "31")  // 1860 s → 31 min / 1860초 → 31분
             expect(lang, "customScanRootsMatches", l.customScanRootsMatches(4242), "4242")
 
+            // Celebration lines / 연출 대사
+            expect(lang, "celebrationEvolveAnnounce", l.celebrationEvolveAnnounce(a), a)
+            expect(lang, "celebrationEvolveDone", l.celebrationEvolveDone(from: a, to: b), a, b)
+            expect(lang, "celebrationHatchDone", l.celebrationHatchDone(a), a)
+
             // Save transfer / 세이브 이전
             expect(lang, "importConfirmBody",
                    l.importConfirmBody(incomingDex: 4242, incomingTokens: a,

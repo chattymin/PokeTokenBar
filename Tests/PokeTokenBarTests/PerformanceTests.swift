@@ -286,10 +286,10 @@ final class FloatingPetEnergyTests: XCTestCase {
     /// Bubble needs headroom + width beyond the square pet size — otherwise content is clipped.
     func testPanelGrowsForBubbleWithoutChangingPetOrigin() {
         let pet: CGFloat = 96
-        let idle = FloatingPetController.panelSize(petSize: pet, showingBubble: false)
+        let idle = FloatingPetController.panelSize(petSize: pet, showingBubble: false, celebrating: false)
         XCTAssertEqual(idle, NSSize(width: pet, height: pet))
 
-        let shown = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
+        let shown = FloatingPetController.panelSize(petSize: pet, showingBubble: true, celebrating: false)
         XCTAssertGreaterThan(shown.height, pet, "must reserve vertical headroom for the bubble")
         XCTAssertGreaterThanOrEqual(shown.width, pet)
 
@@ -297,7 +297,7 @@ final class FloatingPetEnergyTests: XCTestCase {
         // panel width, not the bubble column. Only 184/192 reached it before the slider max
         // went to 384, so it was an untested 2-step edge; now it is most of the range.
         let large: CGFloat = 384
-        let largeShown = FloatingPetController.panelSize(petSize: large, showingBubble: true)
+        let largeShown = FloatingPetController.panelSize(petSize: large, showingBubble: true, celebrating: false)
         XCTAssertEqual(largeShown.width, large, "panel must widen with the pet past bubbleMinWidth")
         XCTAssertEqual(largeShown.height, large + FloatingPetController.bubbleHeadroom)
 
@@ -309,6 +309,15 @@ final class FloatingPetEnergyTests: XCTestCase {
             panelOrigin: panelOrigin, petSize: pet, panelSize: shown)
         XCTAssertEqual(roundTrip.x, petOrigin.x, accuracy: 0.5)
         XCTAssertEqual(roundTrip.y, petOrigin.y, accuracy: 0.5)
+
+        // A playing sequence grows the panel on every side; the pet keeps its spot through the round trip.
+        let celebrating = FloatingPetController.panelSize(petSize: pet, showingBubble: true, celebrating: true)
+        XCTAssertGreaterThan(celebrating.height, shown.height)
+        let celebratingOrigin = FloatingPetController.panelOrigin(
+            petOrigin: petOrigin, petSize: pet, panelSize: celebrating, celebrating: true)
+        XCTAssertEqual(celebratingOrigin.y, petOrigin.y - CelebrationStage.effectsMargin, "room below the feet")
+        XCTAssertEqual(FloatingPetController.petOrigin(panelOrigin: celebratingOrigin, petSize: pet,
+                                                       panelSize: celebrating, celebrating: true), petOrigin)
     }
 
     /// Click opens the popover only when the pointer barely moved; larger movement is a drag.
@@ -373,7 +382,7 @@ final class FloatingPetEnergyTests: XCTestCase {
     /// clamps width to the column by construction, so that assert could never fail.
     func testLocalizedAlertBubbleFitsDefaultPanel() {
         let pet: CGFloat = 96
-        let panel = FloatingPetController.panelSize(petSize: pet, showingBubble: true)
+        let panel = FloatingPetController.panelSize(petSize: pet, showingBubble: true, celebrating: false)
         XCTAssertEqual(panel.width, FloatingPetController.bubbleMinWidth)
         XCTAssertEqual(panel.height, pet + FloatingPetController.bubbleHeadroom)
         XCTAssertEqual(

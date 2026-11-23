@@ -1716,20 +1716,18 @@ final class CompanionIdentityTests: XCTestCase {
         XCTAssertEqual(CompanionState().language, AppLanguage.systemDefault)
     }
 
-    /// 부화/진화가 연출 트리거(celebrationSeq)를 올리고, consume 후 비워지는지.
+    /// 부화/진화가 연출 큐에 순서대로 쌓이는지.
     func testCelebrationFiresOnHatchAndEvolve() async {
         let s = store(linear3, seed: 9)
-        XCTAssertEqual(s.celebrationSeq, 0)
+        XCTAssertTrue(s.celebrations.items.isEmpty)
         await s.hatch(baseID: 1)
-        XCTAssertEqual(s.celebrationSeq, 1)
-        if case .hatch = s.celebration {} else { XCTFail("hatch 연출이어야 함: \(String(describing: s.celebration))") }
-        s.consumeCelebration()
-        XCTAssertNil(s.celebration)
+        XCTAssertEqual(s.celebrations.items.count, 1)
+        if case .hatch = s.celebrations.items.last?.kind {} else { XCTFail("hatch 연출이어야 함") }
         // 1단계 임계 도달 → 진화 연출
         let thr = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
         s.applyUsage(thr)
-        XCTAssertEqual(s.celebrationSeq, 2)
-        XCTAssertEqual(s.celebration, .evolve)
+        XCTAssertEqual(s.celebrations.items.count, 2)
+        if case .evolve = s.celebrations.items.last?.kind {} else { XCTFail("evolve 연출이어야 함") }
     }
 
     /// [회귀] 라인 미로딩(재시작 직후/오프라인) 중 델타가 유실되지 않고 적립, 라인 로드 후 진화 판정.
@@ -1800,7 +1798,10 @@ final class CompanionIdentityTests: XCTestCase {
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.isShiny, true)
         XCTAssertEqual(s.state.active?.stageIndex, 1, "이월로 1회 진화했어야 함")
-        XCTAssertEqual(s.celebration, .hatch(shiny: true), "evolve 가 shiny 부화 버스트를 덮으면 안 된다")
+        let kinds = s.celebrations.items.map(\.kind)
+        XCTAssertEqual(kinds.count, 2, "hatch 다음에 이월 evolve")
+        if case .hatch(let to) = kinds.first { XCTAssertTrue(to.isShiny) } else { XCTFail("hatch 가 먼저여야 함") }
+        if case .evolve = kinds.last {} else { XCTFail("이월 evolve 가 뒤따라야 함") }
     }
 
     /// [회귀] 이월이 졸업 총량을 넘어 부화 즉시 졸업한 극단 케이스 — hatch 연출은 생략(이미 도감행).
@@ -1812,7 +1813,7 @@ final class CompanionIdentityTests: XCTestCase {
         await s.hatchIfNeeded()
         XCTAssertNil(s.state.active, "즉시 졸업")
         XCTAssertEqual(s.state.dex.count, 1)
-        XCTAssertNil(s.celebration, "떠난 mon 의 hatch 연출을 재생하면 안 된다")
+        XCTAssertTrue(s.celebrations.items.isEmpty, "떠난 mon 의 hatch 연출을 재생하면 안 된다")
     }
 
     // MARK: 부화 샘플러 (PokéAPI rejection sampling — 하드코딩 풀 대체)

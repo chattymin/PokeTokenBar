@@ -72,6 +72,12 @@ final class UnownSpriteTests: XCTestCase {
 /// A correct filename helper alone cannot prove the production loaders forward the selected form.
 @MainActor
 final class UnownSpriteCacheTests: XCTestCase {
+    /// Identity checks need room in the process-wide image cache: `NSCache` evicts eagerly near its
+    /// `countLimit`, so images earlier suites loaded could evict an entry these tests just added.
+    override func setUp() async throws {
+        SpriteLoader.imageCache.removeAllObjects()
+    }
+
     private let forms: [(PokemonForm, String)] = [
         (.a, "201"), (.b, "201-b"), (.exclamation, "201-exclamation"), (.question, "201-question"),
     ]

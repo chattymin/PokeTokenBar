@@ -8,6 +8,8 @@ import SwiftUI
 /// - Limit-alert speech bubbles grow the panel; persisted origin is the *pet*, not the panel.
 /// - Agent activity (`poketokenbar://agent`): bob while working, bubble while waiting,
 ///   run to the cursor when done. The run never moves the saved home.
+/// - Hatch/evolve sequences play live on the pet whenever it is shown, in sync with an open popover: the subject
+///   being celebrated replaces a pinned one, the caption goes in the bubble, a click skips.
 /// - 에너지: 숨김·슬립 시 호스팅 트리 해제.
 @MainActor
 final class FloatingPetController: NSObject, NSWindowDelegate {
@@ -48,12 +50,20 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// headroom-only guard stays green for 3-line copy that still fits 70pt (#167).
     static let bubbleBodyLineLimit = 2
 
+    /// An untitled bubble (the pet speaking a celebration line) gives the freed title row to its body,
+    /// so a long Russian reveal line keeps the name of what it became.
+    static func bodyLineLimit(titled: Bool) -> Int { titled ? bubbleBodyLineLimit : bubbleBodyLineLimit + 1 }
+
     /// Run to the cursor / back home.
     static let agentRunDuration: TimeInterval = 0.6
     /// Distance between the cursor and the panel after a run, so the pet never sits under the pointer.
     static let agentRunCursorGap: CGFloat = 16
     /// Half a bob cycle while an agent works. Must stay > 0: it is the frame cap of this loop.
     static let agentBobInterval: TimeInterval = 0.5
+    /// Frame cap of a hatch/evolve sequence's effects on the pet (30 fps). The popover draws them every
+    /// display frame; this surface is always on, so it keeps a named cap above 0 (defect-log §에너지).
+    /// The GIF frames inside still follow the user's `animationQuality.frameFloor`.
+    static let celebrationFrameInterval: TimeInterval = 1.0 / 30
 
     /// Where the pet stands relative to its saved home during an agent "done" run.
     enum RunPhase: Equatable {
@@ -99,10 +109,16 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         case limit(UsageStore.LimitAlert)
         case agentWaiting(label: String?, message: String?, others: Int)
         case agentDone(label: String?, message: String?)
+        /// The caption of the hatch/evolve sequence playing on the pet.
+        case celebration(String)
     }
 
-    /// A limit alert outranks agents; among agents a fresh `done` outranks waiting.
-    static func bubble(limitAlert: UsageStore.LimitAlert?, agent: AgentActivitySummary) -> Bubble? {
+    /// A critical limit alert outranks the playing celebration's caption, which outranks a warning and
+    /// agents; among agents a fresh `done` outranks waiting.
+    static func bubble(limitAlert: UsageStore.LimitAlert?, agent: AgentActivitySummary,
+                       celebration: String? = nil) -> Bubble? {
+        if let limitAlert, limitAlert.isCritical { return .limit(limitAlert) }
+        if let celebration { return .celebration(celebration) }
         if let limitAlert { return .limit(limitAlert) }
         if let done = agent.done { return .agentDone(label: done.label, message: done.message) }
         if let waiting = agent.waiting {
@@ -130,6 +146,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         case .agentDone(let label, let message):
             let title = agentTitle(label: label, unlabeled: l.agentDoneTitle, status: l.agentDoneStatus, count: nil)
             return agentContent(title: title, body: message ?? l.agentDoneDefaultBody)
+        case .celebration(let line):
+            // The pet speaking: no title, the line itself in the body's two lines.
+            return SpeechBubbleContent(title: "", body: fittedBubbleBody(line, title: ""), isCritical: false)
         }
     }
 
@@ -186,16 +205,127 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// How long the heart bubble stays after the last qualifying stroke.
     static let heartDuration: Duration = .milliseconds(1800)
 
-    /// Speech takes priority over hearts: limit alert, agent done, agent waiting, then a stroke.
+    /// Speech takes priority over hearts: limit alert, celebration, agent done, agent waiting, then a stroke.
     static func heartsShowing(afterStrokeWithAlertActive alertActive: Bool,
-                              agent: AgentActivitySummary = .init()) -> Bool {
-        !alertActive && bubble(limitAlert: nil, agent: agent) == nil
+                              agent: AgentActivitySummary = .init(), celebration: String? = nil) -> Bool {
+        !alertActive && bubble(limitAlert: nil, agent: agent, celebration: celebration) == nil
     }
 
-    /// Reserve headroom for either speech or hearts, including agent-only speech.
+    /// Reserve headroom for either speech or hearts, including agent-only and celebration speech.
     static func isShowingBubble(alertActive: Bool, heartsShowing: Bool,
-                                agent: AgentActivitySummary = .init()) -> Bool {
-        alertActive || bubble(limitAlert: nil, agent: agent) != nil || heartsShowing
+                                agent: AgentActivitySummary = .init(), celebration: String? = nil) -> Bool {
+        alertActive || bubble(limitAlert: nil, agent: agent, celebration: celebration) != nil || heartsShowing
+    }
+
+    // MARK: Celebrations (pure)
+
+    /// The pet plays sequences only while it is enabled, actually on screen, the display is awake and
+    /// someone can see it (no lock screen, screensaver or switched-out user session).
+    static func isLive(enabled: Bool, panelVisible: Bool, displayAwake: Bool, sessionInteractive: Bool) -> Bool {
+        enabled && panelVisible && displayAwake && sessionInteractive
+    }
+
+    /// What the login session looks like right now. `NSWindow.isVisible` stays true behind a lock screen
+    /// or another user's session, so this is read separately.
+    struct SessionState: Equatable {
+        var screenLocked = false
+        var onConsole = true
+
+        /// Read from the system, not remembered from notifications: `CGSessionCopyCurrentDictionary`
+        /// (lock flag, console ownership).
+        static func current() -> SessionState {
+            let session = CGSessionCopyCurrentDictionary() as? [String: Any]
+            return SessionState(
+                screenLocked: session?["CGSSessionScreenIsLocked"] as? Bool ?? false,
+                onConsole: session?["kCGSSessionOnConsoleKey"] as? Bool ?? true)
+        }
+    }
+
+    /// The session notifications the pet (and through it the popover) follows.
+    enum SessionNotice: Equatable {
+        case locked, unlocked, screensaverStarted, screensaverStopped, resignedActive, becameActive
+
+        /// The "un-" side: the session may lag behind it, so one re-check follows a moment later.
+        var endsInterruption: Bool {
+            switch self {
+            case .unlocked, .screensaverStopped, .becameActive: true
+            case .locked, .screensaverStarted, .resignedActive: false
+            }
+        }
+    }
+
+    /// `screensaverRunning`: a flag set and cleared by the screensaver's own start/stop notifications (its
+    /// engine process is still listed when `didstop` arrives, so a process scan kept the pet hidden).
+    /// `startNoticed`: a lock / session-resign notification triggered this check, so it counts as
+    /// non-interactive even if the session state lags behind it. Every later check trusts the session state,
+    /// so a missed "un-" notification never keeps the pet down.
+    static func sessionInteractive(_ state: SessionState, screensaverRunning: Bool, startNoticed: Bool) -> Bool {
+        !startNoticed && !screensaverRunning && !state.screenLocked && state.onConsole
+    }
+
+    /// Who the pet is showing: the subject a pending hatch/evolve presents (`CelebrationPresentation`, shared
+    /// with the popover), even when the user pinned another species; without one, the pinned or live one.
+    static func displayedSubject(representative: CompanionStore.RepresentativeSubject,
+                                 presentation: CelebrationPresentation?) -> CompanionStore.RepresentativeSubject {
+        switch presentation {
+        case .egg?: CompanionStore.RepresentativeSubject(speciesID: nil, isShiny: false)
+        case .subject(let s)?: CompanionStore.RepresentativeSubject(speciesID: s.speciesID, isShiny: s.isShiny, form: s.form)
+        case nil: representative
+        }
+    }
+
+    /// What the pet presents for the queue: no result before its sequence is seen, across a whole chain.
+    /// `liveSpeciesID`: the companion's species in the store now (nil for an egg), whatever the pet represents.
+    static func presentation(queue: CelebrationQueue, player: CelebrationPlayer,
+                             liveSpeciesID: Int?) -> CelebrationPresentation? {
+        CelebrationPresentation.shown(queue: queue, playing: player.item, text: player.text, surface: .floatingPet,
+                                      liveSpeciesID: liveSpeciesID)
+    }
+
+    /// The subject on the pet with the queue taken into account.
+    static func displayedSubject(representative: CompanionStore.RepresentativeSubject, queue: CelebrationQueue,
+                                 player: CelebrationPlayer, liveSpeciesID: Int?) -> CompanionStore.RepresentativeSubject {
+        displayedSubject(representative: representative,
+                         presentation: presentation(queue: queue, player: player, liveSpeciesID: liveSpeciesID))
+    }
+
+    /// The caption of the playing sequence in `language`; nil between lines or at rest.
+    static func celebrationCaption(player: CelebrationPlayer, language: AppLanguage) -> String? {
+        player.item.flatMap { L(language).celebrationText(player.text, kind: $0.kind) }
+    }
+
+    /// What the pet's player does about the queue.
+    enum CelebrationStep: Equatable {
+        case keep
+        case play(PendingCelebration)
+        case stop
+    }
+
+    /// The pet plays the queue head whenever it is live, the popover open or not: both surfaces then play it at
+    /// the same time, and the first to reach its end marks it seen. The popover closing mid-sequence changes
+    /// nothing here (no restart). When the head moves on (seen on the popover, or the queue was reset) the pet
+    /// follows or stops. Not live means the pet was hidden or put to sleep, and `hide()` already stopped it.
+    static func celebrationStep(petLive: Bool, head: PendingCelebration?, playingID: Int?) -> CelebrationStep {
+        guard petLive else { return .keep }
+        guard let head else { return playingID == nil ? .keep : .stop }
+        return head.id == playingID ? .keep : .play(head)
+    }
+
+    /// Pause between the resting egg's one-shot wobbles; nil = no wobble task at all (not a resting egg,
+    /// early tier, hidden or asleep, Low Power or Reduce Motion).
+    static func eggWobbleInterval(restingEgg: Bool, progress: Double, motionAllowed: Bool,
+                                  panelVisible: Bool) -> Duration? {
+        guard restingEgg, motionAllowed, panelVisible else { return nil }
+        return EggIncubationTier.tier(progress: progress).wobbleInterval
+    }
+
+    /// The egg's incubation tier for the hover text; nil when the pet shows a Pokémon. An egg presented by a
+    /// pending hatch is already past the store (its progress is the next egg's), so it reads as imminent.
+    static func eggTierLine(subject: CompanionStore.RepresentativeSubject, presentation: CelebrationPresentation?,
+                            eggProgress: Double, l: L) -> String? {
+        guard subject.speciesID == nil else { return nil }
+        let tier: EggIncubationTier = presentation == .egg ? .imminent : .tier(progress: eggProgress)
+        return tier.text(l)
     }
 
     /// The native tooltip would overlap the heart bubble, so it is cleared while hearts show.
@@ -244,10 +374,17 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private var onOpenPopover: (() -> Void)?
     private var onHide: (() -> Void)?
-    /// Tests pin motion on or off; nil follows Low Power Mode and Reduce Motion.
+    /// Plays the hatch/evolve sequences on the pet. Owned here, not by the hosted view, so a hosting
+    /// rebuild (Low Power toggle) keeps the sequence where it is.
+    let celebrationPlayer: CelebrationPlayer
+    private let spriteStore: SpriteStore
+    /// The resting egg's periodic one-shot wobbles (see `eggWobbleInterval`).
+    private lazy var eggWobbles = EggWobbleDriver { [weak self] in self?.prayerBurst.nudge() }
+    /// Tests pin motion on or off (the hosted view's animations included); nil follows Low Power Mode and
+    /// Reduce Motion.
     private let motionOverride: Bool?
     /// Owned here and handed to the view once, so a prayer never rebuilds the hosting `rootView`.
-    private let prayerBurst = PrayerBurst()
+    let prayerBurst = PrayerBurst()
     private let hearts = PetHeartState()
     private var heartExpiry: Task<Void, Never>?
     private var isHovering = false
@@ -306,8 +443,15 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     init(store: UsageStore, companion: CompanionStore, defaults: UserDefaults = .standard,
          clock: @escaping () -> Date = Date.init,
          onOpenPopover: (() -> Void)? = nil, onHide: (() -> Void)? = nil,
-         motionOverride: Bool? = nil) {
+         motionOverride: Bool? = nil, celebrationPlayer: CelebrationPlayer? = nil,
+         spriteStore: SpriteStore = .shared,
+         sessionProbe: @escaping @MainActor () -> SessionState = { SessionState.current() },
+         sessionRecheckWait: @escaping @MainActor () async throws -> Void = { try await Task.sleep(for: .seconds(1)) }) {
         self.clock = clock
+        self.sessionProbe = sessionProbe
+        self.sessionRecheckWait = sessionRecheckWait
+        self.celebrationPlayer = celebrationPlayer ?? CelebrationPlayer()
+        self.spriteStore = spriteStore
         self.store = store
         self.companion = companion
         self.defaults = defaults
@@ -319,6 +463,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         observeSettings()
         observePowerState()
         observeReduceMotion()
+        observeSession()
         sync()
     }
 
@@ -347,6 +492,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             _ = companion.state.eggPrayers   // hover text shows the prayer count
             _ = companion.latestEvent        // hover text shows the latest hatch / evolution line
             _ = companion.representativeSubject
+            _ = companion.celebrations       // a new sequence to play (or the queue moved on)
+            _ = companion.liveSurfaces       // the popover opened or closed
+            _ = companion.celebrationPlayback   // the popover joined or skipped the shared item
+            _ = celebrationPlayer.item       // panel room for the effects
+            _ = celebrationPlayer.text       // the caption bubble needs headroom
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -365,6 +515,67 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
     }
 
+    private var sessionObservers: [(NotificationCenter, NSObjectProtocol)] = []
+    /// Set by a start notification for the one `sync()` it triggers (see `sessionInteractive`).
+    private var sessionStartNoticed = false
+    /// Between the screensaver's `didstart` and `didstop` (see `sessionInteractive`).
+    private var screensaverRunning = false
+    private let sessionProbe: @MainActor () -> SessionState
+    /// How long the one-shot re-check waits (~1 s); injectable so tests decide when it fires.
+    private let sessionRecheckWait: @MainActor () async throws -> Void
+    /// The one-shot re-check after an "un-" notification; nil when none is pending (never a repeating timer).
+    private var sessionRecheck: Task<Void, Never>?
+    var sessionRecheckPending: Bool { sessionRecheck != nil }
+    /// Whether someone can see the screen, as of the last `sync()`. The popover is live only while
+    /// this holds too (`CelebrationQueue.popoverLive`); `onSessionInteractiveChange` reports each change.
+    private(set) var sessionInteractive = true
+    var onSessionInteractiveChange: (@MainActor (Bool) -> Void)?
+
+    /// Lock screen, screensaver and fast user switching. The lock and user-switch notifications only trigger
+    /// a re-check, `sync()` reads the session every time (`sessionProbe`); the screensaver sets its flag.
+    private func observeSession() {
+        let distributed = DistributedNotificationCenter.default()
+        let workspace = NSWorkspace.shared.notificationCenter
+        let events: [(NotificationCenter, Notification.Name, SessionNotice)] = [
+            (distributed, Notification.Name("com.apple.screenIsLocked"), .locked),
+            (distributed, Notification.Name("com.apple.screenIsUnlocked"), .unlocked),
+            (distributed, Notification.Name("com.apple.screensaver.didstart"), .screensaverStarted),
+            (distributed, Notification.Name("com.apple.screensaver.didstop"), .screensaverStopped),
+            (workspace, NSWorkspace.sessionDidResignActiveNotification, .resignedActive),
+            (workspace, NSWorkspace.sessionDidBecomeActiveNotification, .becameActive),
+        ]
+        sessionObservers = events.map { center, name, notice in
+            (center, center.addObserver(forName: name, object: nil, queue: .main) { [weak self] _ in
+                Task { @MainActor in self?.sessionDidChange(notice) }
+            })
+        }
+    }
+
+    /// A session notification arrived: re-check now, and once more shortly after an "un-" notification.
+    func sessionDidChange(_ notice: SessionNotice) {
+        switch notice {
+        case .screensaverStarted: screensaverRunning = true; sessionStartNoticed = true
+        case .screensaverStopped: screensaverRunning = false
+        case .locked, .resignedActive: sessionStartNoticed = true
+        case .unlocked, .becameActive: break
+        }
+        sync()
+        if notice.endsInterruption { scheduleSessionRecheck() }
+    }
+
+    /// The session dictionary can still read locked when the unlock notification arrives, and nothing else
+    /// would look again while the pet is hidden: one cancellable one-shot `sync()` heals a stale read.
+    private func scheduleSessionRecheck() {
+        sessionRecheck?.cancel()
+        let wait = sessionRecheckWait
+        sessionRecheck = Task { @MainActor [weak self] in
+            do { try await wait() } catch { return }
+            guard let self else { return }
+            self.sessionRecheck = nil
+            self.sync()
+        }
+    }
+
     private func observeReduceMotion() {
         reduceMotionObserver = NSWorkspace.shared.notificationCenter.addObserver(
             forName: NSWorkspace.accessibilityDisplayOptionsDidChangeNotification, object: nil, queue: .main
@@ -375,11 +586,9 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     static func shouldAnimate(lowPower: Bool) -> Bool { !lowPower }
 
+    /// The same rule as the popover (`MotionSettings`): no Reduce Motion and no Low Power.
     private var motionAllowed: Bool {
-        if let motionOverride { return motionOverride }
-        return Self.allowsMotion(
-            animated: Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled),
-            reduceMotion: NSWorkspace.shared.accessibilityDisplayShouldReduceMotion)
+        motionOverride ?? !MotionSettings.system.reduced
     }
 
     private var agentEnabled: Bool { store.floatingPetEnabled && store.floatingPetAgentActivity }
@@ -458,10 +667,11 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// Leaves home for a spot next to the cursor and returns the panel frame to animate to.
     func beginRun(cursor: NSPoint, visibleFrame: NSRect) -> NSRect {
         let petSize = CGFloat(store.floatingPetSize)
-        let size = Self.panelSize(petSize: petSize, showingBubble: true)
+        let size = Self.panelSize(petSize: petSize, showingBubble: true, celebrating: celebrating)
         let origin = Self.runPanelOrigin(cursor: cursor, panelSize: size, visibleFrame: visibleFrame)
         runPhase = .away
-        awayPetOrigin = Self.petOrigin(panelOrigin: origin, petSize: petSize, panelSize: size)
+        _ = updateLayout()   // the run's frame step: the agent's bubble switches with it
+        awayPetOrigin = Self.petOrigin(panelOrigin: origin, petSize: petSize, panelSize: size, celebrating: celebrating)
         return NSRect(origin: origin, size: size)
     }
 
@@ -478,6 +688,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
         runPhase = .returning
         let frame = targetFrame(petSize: CGFloat(store.floatingPetSize), showingBubble: showingBubble)
+        _ = updateLayout()   // the run's frame step: the agent's bubble switches with it
         animate(p, to: frame) { [weak self] in
             guard let self, self.runPhase == .returning else { return }
             self.runPhase = .home
@@ -501,9 +712,14 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     /// A plain click answers waiting/done agents, then prays over an egg or opens a hatched pet.
+    /// While a sequence plays, a click only skips it to the reveal.
     func petClicked() {
+        if celebrationPlayer.item != nil {
+            celebrationPlayer.skip()
+            return
+        }
         if tracker.dismissBubble() { agentDidChange() }
-        clickRouter.handle(subjectIsEgg: companion.representativeSubject.speciesID == nil)
+        clickRouter.handle(subjectIsEgg: displayedSubject.speciesID == nil)
     }
 
     /// Context-menu Open always opens, including when the representative is an egg.
@@ -513,23 +729,32 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     /// Panel size for a given pet size and bubble visibility. Pure — tested without AppKit layout.
-    static func panelSize(petSize: CGFloat, showingBubble: Bool) -> NSSize {
-        if showingBubble {
-            return NSSize(width: max(petSize, bubbleMinWidth),
-                          height: petSize + bubbleHeadroom)
+    /// A playing sequence widens the panel by the stage's effects margin on each side and adds it on top;
+    /// the pet keeps standing on the bottom edge, so `panelOrigin`/`petOrigin` keep it in place.
+    static func panelSize(petSize: CGFloat, showingBubble: Bool, celebrating: Bool = false) -> NSSize {
+        var size = showingBubble ? NSSize(width: max(petSize, bubbleMinWidth), height: petSize + bubbleHeadroom)
+                                 : NSSize(width: petSize, height: petSize)
+        if celebrating {
+            let margin = CelebrationStage.effectsMargin
+            size.width = max(size.width, petSize + 2 * margin)
+            size.height += 2 * margin
         }
-        return NSSize(width: petSize, height: petSize)
+        return size
     }
 
-    static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+    /// While celebrating, the panel also reaches `effectsMargin` below the feet: the pet box sits that
+    /// far above the panel's bottom edge, so it stays at the same spot on screen.
+    static func panelOrigin(petOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize, celebrating: Bool = false) -> NSPoint {
         let xInset = max(0, (panelSize.width - petSize) / 2)
-        return NSPoint(x: petOrigin.x - xInset, y: petOrigin.y)
+        return NSPoint(x: petOrigin.x - xInset, y: petOrigin.y - bottomInset(celebrating: celebrating))
     }
 
-    static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize) -> NSPoint {
+    static func petOrigin(panelOrigin: NSPoint, petSize: CGFloat, panelSize: NSSize, celebrating: Bool = false) -> NSPoint {
         let xInset = max(0, (panelSize.width - petSize) / 2)
-        return NSPoint(x: panelOrigin.x + xInset, y: panelOrigin.y)
+        return NSPoint(x: panelOrigin.x + xInset, y: panelOrigin.y + bottomInset(celebrating: celebrating))
     }
+
+    private static func bottomInset(celebrating: Bool) -> CGFloat { celebrating ? CelebrationStage.effectsMargin : 0 }
 
     /// Measure speech-bubble chrome for a title/body at the fixed content width (wrapping).
     /// Pure AppKit typography — keeps the layout test free of SwiftUI hosting.
@@ -564,7 +789,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         let unclampedBody = (body as NSString).boundingRect(
             with: unclamped, options: opts, attributes: [.font: bodyFont])
         let textWidth = min(contentWidth, max(titleRect.width, bodyRect.width))
-        let textHeight = ceil(titleRect.height) + 2 + ceil(bodyRect.height)
+        let titleHeight = title.isEmpty ? 0 : ceil(titleRect.height) + 2   // an empty title is not drawn
+        let textHeight = titleHeight + ceil(bodyRect.height)
         // Match SpeechBubbleView: horizontal padding ×2, vertical 6, bottom pad 6 for the tail.
         let hPad = bubbleHorizontalPadding * 2
         let bodyLineCount = wrappedLineCount(body, font: bodyFont, width: contentWidth)
@@ -573,7 +799,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             bodyLineCount: bodyLineCount,
             unclampedTitleWidth: unclampedTitle.width,
             unclampedBodyWidth: unclampedBody.width,
-            wouldTruncate: bodyLineCount > bubbleBodyLineLimit)
+            wouldTruncate: bodyLineCount > bodyLineLimit(titled: !title.isEmpty))
     }
 
     /// Wrap count at `width` using the same `boundingRect` path as `size`, so a
@@ -591,19 +817,145 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     private func sync() {
         if !agentEnabled, !tracker.agents.isEmpty || runPhase != .home { resetAgent() }
-        guard store.floatingPetEnabled, displayAwake else { hide(); return }
-        show()
+        let interactive = Self.sessionInteractive(sessionProbe(), screensaverRunning: screensaverRunning,
+                                                  startNoticed: sessionStartNoticed)
+        sessionStartNoticed = false
+        if interactive != sessionInteractive {
+            sessionInteractive = interactive
+            onSessionInteractiveChange?(interactive)
+        }
+        // Behind a lock screen, a screensaver or another user's session the pet is as good as asleep:
+        // hidden like display sleep, so a sequence is cancelled, never finished unseen.
+        let shown = store.floatingPetEnabled && displayAwake && interactive
+        if shown { show() } else { hide() }
+        let live = Self.isLive(enabled: store.floatingPetEnabled, panelVisible: panel?.isVisible == true,
+                               displayAwake: displayAwake, sessionInteractive: interactive)
+        // Only on change: every write notifies the store's observers, this controller included.
+        if companion.floatingPetLive != live { companion.floatingPetLive = live }
+        syncCelebration()
+        if shown, let p = panel {
+            // The step above may have just started or ended a sequence: give the stage its room now, in
+            // the same pass, so its first frame is never clipped.
+            applyFrame(p, targetFrame(petSize: CGFloat(store.floatingPetSize), showingBubble: showingBubble))
+        }
+        syncEggWobble()
     }
+
+    /// Frames the panel and switches the view's layout (stage or resting sprite, bubble, hearts) in one step,
+    /// then lays the content out and draws it at once, so the new frame and the new layout land in the same
+    /// display cycle. The view used to follow the player and the store instead: at a sequence's end it drew the
+    /// resting sprite in the still-grown panel, and a limit alert's bubble over the pet in the resting-size
+    /// panel, until the observation hop reframed it. Does nothing when nothing changed (no idle cost).
+    private func applyFrame(_ p: NSPanel, _ frame: NSRect) {
+        let layoutChanged = updateLayout()
+        guard layoutChanged || p.frame != frame else { return }
+        p.setFrame(frame, display: true)
+        p.contentView?.layoutSubtreeIfNeeded()
+        p.displayIfNeeded()
+    }
+
+    private func syncCelebration() {
+        switch Self.celebrationStep(petLive: companion.isLive(.floatingPet),
+                                    head: companion.celebrations.next(for: .floatingPet),
+                                    playingID: celebrationPlayer.item?.id) {
+        case .keep:
+            followSharedStart()
+        case .play(let head):
+            if let previous = celebrationPlayer.item?.id { companion.celebrationStopped(id: previous, on: .floatingPet) }
+            // Joins the popover's start and version when it already plays the item: both show the same phase.
+            let shared = companion.beginCelebration(id: head.id, on: .floatingPet, now: celebrationPlayer.now,
+                                                    reduced: !motionAllowed)
+            playCelebration(head, from: shared.startedAt, reduced: shared.reduced)
+        case .stop:
+            stopCelebration()
+        }
+    }
+
+    private func playCelebration(_ head: PendingCelebration, from start: Date, reduced: Bool) {
+        celebrationPlayer.reduced = reduced
+        // The end of the sequence marks it seen and releases its notification. The store decides: finished if
+        // the pet is still live, else a stop (seen only past the reveal).
+        // The end reframes at once (`sync()`), in the player's own step: waiting for the observation hop left
+        // the resting sprite drawn in the still-grown panel. The next queued item, if any, starts there too.
+        celebrationPlayer.play(head, now: start, onFinish: { [weak self, companion] id in
+            companion.celebrationPlayerEnded(id: id, on: .floatingPet)
+            self?.sync()
+        }, onSkip: { [companion] id, start in companion.skipCelebration(id: id, startedAt: start) },
+           onSeen: { [companion] id in companion.celebrationRevealed(id: id) })
+    }
+
+    /// Re-aligns on the shared start after the popover skipped the item.
+    private func followSharedStart() {
+        guard let shared = companion.celebrationPlayback, let item = celebrationPlayer.item, shared.id == item.id,
+              celebrationPlayer.startedAt != shared.startedAt else { return }
+        playCelebration(item, from: shared.startedAt, reduced: shared.reduced)
+    }
+
+    /// Stops the pet's playback before its end: seen if it passed the reveal and nobody else plays it.
+    private func stopCelebration() {
+        let id = celebrationPlayer.item?.id
+        celebrationPlayer.cancel()
+        if let id { companion.celebrationStopped(id: id, on: .floatingPet) }
+    }
+
+    private func syncEggWobble() {
+        eggWobbles.update(every: Self.eggWobbleInterval(
+            restingEgg: celebrationPlayer.item == nil && displayedSubject.speciesID == nil,
+            progress: companion.eggProgress, motionAllowed: motionAllowed, panelVisible: panel?.isVisible == true))
+    }
+
+    private var celebrationCaption: String? {
+        Self.celebrationCaption(player: celebrationPlayer, language: companion.language)
+    }
+
+    private var celebrating: Bool { celebrationPlayer.item != nil }
+
+    /// Who the pet shows now: a pending hatch/evolve's source until that item is finished.
+    var displayedSubject: CompanionStore.RepresentativeSubject {
+        Self.displayedSubject(representative: companion.representativeSubject, queue: companion.celebrations,
+                              player: celebrationPlayer, liveSpeciesID: companion.currentSpeciesID)
+    }
+
+    /// The frame on screen was laid out for a sequence (pet raised by the effects margin). Read by the hosted
+    /// view too, so the frame and the layout never disagree.
+    private let layout = FloatingPetLayoutModel()
+    private var framedForCelebration: Bool { layout.celebrating }
+
+    /// The panel's frame on screen; nil before it was first shown.
+    var panelFrame: NSRect? { panel?.frame }
+    /// The hosted pet view (tests capture it).
+    var hostingView: PetHostingView? { panel?.contentView as? PetHostingView }
+    /// Whether the hosted view lays out the stage (rather than the resting sprite) right now.
+    var contentShowsStage: Bool { FloatingPetView.showsStage(layout: layout) }
+    /// Whether the hosted view draws a speech bubble right now.
+    var contentShowsBubble: Bool { FloatingPetView.speechBubble(layout: layout) != nil }
 
     private var showingBubble: Bool {
         Self.isShowingBubble(alertActive: store.currentBubbleAlert != nil, heartsShowing: hearts.isShowing,
-                             agent: tracker.summary)
+                             agent: tracker.summary, celebration: celebrationCaption)
+    }
+
+    /// The speech bubble the panel reserves its headroom for (`showingBubble` without the hearts).
+    private var speechBubble: Bubble? {
+        Self.bubble(limitAlert: store.currentBubbleAlert, agent: tracker.summary, celebration: celebrationCaption)
+    }
+
+    /// Writes what the view lays out (stage, bubble, hearts) from the state the frame is computed from.
+    /// Returns whether anything changed. Only the frame-setting paths call it, so both switch together.
+    private func updateLayout() -> Bool {
+        let bubble = speechBubble, heartsShowing = hearts.isShowing
+        var changed = false
+        if layout.celebrating != celebrating { layout.celebrating = celebrating; changed = true }
+        if layout.bubble != bubble { layout.bubble = bubble; changed = true }
+        if layout.hearts != heartsShowing { layout.hearts = heartsShowing; changed = true }
+        return changed
     }
 
     /// Build once per animation mode; callbacks share the controller's click and bubble routing.
     func makeHostingView(animated: Bool) -> PetHostingView {
         let hosting = PetHostingView(rootView: AnyView(
-            FloatingPetView(animated: animated, agent: agentModel, burst: prayerBurst, hearts: hearts)
+            FloatingPetView(animated: animated, agent: agentModel, layout: layout, spriteStore: spriteStore,
+                            burst: prayerBurst, celebration: celebrationPlayer)
                 .environment(store).environment(companion)))
         hosting.onOpenPopover = { [weak self] in self?.openPopover() }
         hosting.onClick = { [weak self] in self?.petClicked() }
@@ -622,7 +974,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     private func show() {
         let p = panel ?? makePanel()
         panel = p
-        let wantAnimated = Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
+        let wantAnimated = motionOverride ?? Self.shouldAnimate(lowPower: ProcessInfo.processInfo.isLowPowerModeEnabled)
         if p.contentView == nil || builtAnimated != wantAnimated {
             p.contentView = makeHostingView(animated: wantAnimated)
             builtAnimated = wantAnimated
@@ -632,16 +984,14 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             hosting.strokeDistance = max(10, CGFloat(store.floatingPetSize) * 0.15)
         }
         agentModel.bobs = Self.shouldBob(working: tracker.summary.working, motionAllowed: motionAllowed)
-        let petSize = CGFloat(store.floatingPetSize)
-        p.setFrame(targetFrame(petSize: petSize, showingBubble: showingBubble),
-                   display: true)
+        applyFrame(p, targetFrame(petSize: CGFloat(store.floatingPetSize), showingBubble: showingBubble))
         p.orderFrontRegardless()
         if hoverPanel?.isVisible == true { showHoverCallout() }
     }
 
     private func petWasStroked() {
         hearts.isShowing = Self.heartsShowing(afterStrokeWithAlertActive: store.currentBubbleAlert != nil,
-                                             agent: tracker.summary)
+                                             agent: tracker.summary, celebration: celebrationCaption)
         guard hearts.isShowing else { return }
         hideHoverCallout()
         sync()
@@ -676,7 +1026,12 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
     }
 
+    /// Every way off screen (Hide, the setting, display sleep) comes through here, before `sync()` writes
+    /// the live flag: the sequence stops unfinished here (it stays queued unless an open popover, playing it in
+    /// sync, reaches its end).
     private func hide() {
+        stopCelebration()
+        eggWobbles.update(every: nil)
         eventPopExpiry?.cancel()
         eventPopText = nil
         heartExpiry?.cancel()
@@ -692,14 +1047,27 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func currentHoverText() -> String {
-        FloatingPetView.hoverTooltip(
+        let l = L(companion.language)
+        let presentation = Self.presentation(queue: companion.celebrations, player: celebrationPlayer,
+                                             liveSpeciesID: companion.currentSpeciesID)
+        let subject = Self.displayedSubject(representative: companion.representativeSubject, presentation: presentation)
+        return FloatingPetView.hoverTooltip(
             todayTokens: store.todayTotalTokens,
             limitUtilization: store.highestLimitUtilization,
             mode: store.limitDisplayMode,
-            l: L(companion.language),
+            l: l,
             sulkIdle: companion.sulkIdle,
             eventLine: eventPopText,
-            prayers: companion.representativeSubject.speciesID == nil ? companion.state.eggPrayers?.count ?? 0 : 0)
+            eggLine: Self.eggTierLine(subject: subject, presentation: presentation,
+                                      eggProgress: companion.eggProgress, l: l),
+            prayers: Self.hoverPrayerCount(subject: subject, presentation: presentation,
+                                           prayers: companion.state.eggPrayers?.count ?? 0))
+    }
+
+    /// The prayer count belongs to the resting egg; during its hatch it is already the next egg's (zero).
+    static func hoverPrayerCount(subject: CompanionStore.RepresentativeSubject, presentation: CelebrationPresentation?,
+                                 prayers: Int) -> Int {
+        subject.speciesID == nil && presentation == nil ? prayers : 0
     }
 
     /// A prayer changes the count in the hover text. Rebuild it right here instead of waiting for the observation
@@ -771,7 +1139,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     }
 
     private func targetFrame(petSize: CGFloat, showingBubble: Bool) -> NSRect {
-        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble)
+        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble, celebrating: celebrating)
         let petOrigin: NSPoint
         if runPhase == .away, let awayPetOrigin {
             petOrigin = awayPetOrigin
@@ -781,11 +1149,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         } else {
             petOrigin = Self.defaultPetOrigin(petSize: petSize)
         }
-        var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: size),
+        var frame = NSRect(origin: Self.panelOrigin(petOrigin: petOrigin, petSize: petSize, panelSize: size,
+                                                    celebrating: celebrating),
                            size: size)
         if !NSScreen.screens.contains(where: { $0.visibleFrame.intersects(frame) }) {
             let fallbackPet = Self.defaultPetOrigin(petSize: petSize)
-            frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize, panelSize: size)
+            frame.origin = Self.panelOrigin(petOrigin: fallbackPet, petSize: petSize, panelSize: size,
+                                            celebrating: celebrating)
         }
         return frame
     }
@@ -816,12 +1186,13 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
 
     func windowDidMove(_ notification: Notification) {
         guard let p = panel, p.isVisible else { return }
-        panelDidMove(panelOrigin: p.frame.origin,
+        panelDidMove(panelOrigin: p.frame.origin, panelSize: p.frame.size,
                      userDragging: (p.contentView as? PetHostingView)?.isDragging ?? false)
         if hoverPanel?.isVisible == true { showHoverCallout() }
     }
 
-    func panelDidMove(panelOrigin: NSPoint, userDragging: Bool) {
+    /// `panelSize` is the panel's actual size on screen, not one recomputed from the current state.
+    func panelDidMove(panelOrigin: NSPoint, panelSize size: NSSize, userDragging: Bool) {
         let move = Self.resolveMove(phase: runPhase, userDragging: userDragging)
         if move.phase != runPhase {
             runPhase = move.phase
@@ -836,10 +1207,41 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         }
         guard move.persist else { return }
         let petSize = CGFloat(store.floatingPetSize)
-        let size = Self.panelSize(petSize: petSize, showingBubble: showingBubble)
-        let pet = Self.petOrigin(panelOrigin: panelOrigin, petSize: petSize, panelSize: size)
+        let pet = Self.petOrigin(panelOrigin: panelOrigin, petSize: petSize, panelSize: size,
+                                 celebrating: framedForCelebration)
         defaults.set(Double(pet.x), forKey: Self.originXKey)
         defaults.set(Double(pet.y), forKey: Self.originYKey)
+    }
+}
+
+/// The resting egg's periodic one-shot wobbles: one sleeping task per interval, none while `interval` is nil.
+/// `sleep` is injectable so tests do not wait for real seconds.
+@MainActor
+final class EggWobbleDriver {
+    private(set) var interval: Duration?
+    /// Unsafe only for `deinit`, which runs once nothing else references the driver.
+    private nonisolated(unsafe) var task: Task<Void, Never>?
+    private let sleep: @MainActor (Duration) async throws -> Void
+    private let wobble: @MainActor () -> Void
+
+    init(sleep: @escaping @MainActor (Duration) async throws -> Void = { try await Task.sleep(for: $0, tolerance: .seconds(1)) },
+         wobble: @escaping @MainActor () -> Void) {
+        self.sleep = sleep
+        self.wobble = wobble
+    }
+
+    /// The loop does not hold the driver: a released driver (a rebuilt or test controller) stops it here.
+    deinit { task?.cancel() }
+
+    /// Restarts the loop only when the interval changes; nil stops it.
+    func update(every: Duration?) {
+        guard every != interval else { return }
+        task?.cancel()
+        task = nil
+        interval = every
+        guard let every else { return }
+        let sleep = sleep, wobble = wobble
+        task = Task { await EggIncubationTier.wobbleLoop(every: every, sleep: sleep, wobble: wobble) }
     }
 }
 
@@ -1015,77 +1417,134 @@ final class FloatingPetAgentModel {
     var bobs = false
 }
 
+/// What the panel is framed for, and so what the view lays out in it: the stage (grown by the effects margin)
+/// or the resting sprite, and the speech bubble or hearts that take the headroom above the pet.
+/// The one source of truth for both the panel frame and the view's layout: only the controller writes it, in
+/// the same step that sets the frame (`FloatingPetController.applyFrame`, and the run's animated frames).
+/// The view never decides from the player, the store's alert or the heart state, which change on their own
+/// clocks, before the panel can grow or shrink.
+@MainActor
+@Observable
+final class FloatingPetLayoutModel {
+    var celebrating = false
+    /// The speech bubble the panel reserved its headroom for; nil = none.
+    var bubble: FloatingPetController.Bubble?
+    /// The heart bubble after a stroke (drawn only without a speech bubble).
+    var hearts = false
+}
+
 @MainActor
 struct FloatingPetView: View {
     var animated: Bool = true
     var agent = FloatingPetAgentModel()
+    /// The controller's framing; it alone switches the stage and the resting sprite, the bubble and the hearts.
+    var layout = FloatingPetLayoutModel()
     /// Injectable so render tests stay offline and away from the real sprite cache.
     var spriteStore: SpriteStore = .shared
     var burst = PrayerBurst()
-    /// Heart bubble shown after a stroke. Limit and agent speech take precedence.
-    var hearts = PetHeartState()
+    /// The controller's sequence player; while it plays, its stage takes the resting sprite's place.
+    var celebration = CelebrationPlayer()
     @Environment(UsageStore.self) private var store
     @Environment(CompanionStore.self) private var companion
 
+    /// The stage on the pet: the sprite's GIF frames keep the user's floor, the effects get the pet's cap.
+    static func celebrationStage(player: CelebrationPlayer, size: CGFloat, frameFloor: TimeInterval,
+                                 spriteStore: SpriteStore) -> CelebrationStage {
+        CelebrationStage(player: player, size: size, minFrameDelay: frameFloor, spriteStore: spriteStore,
+                         minimumInterval: FloatingPetController.celebrationFrameInterval)
+    }
+
+    static func showsStage(layout: FloatingPetLayoutModel) -> Bool { layout.celebrating }
+
+    static func speechBubble(layout: FloatingPetLayoutModel) -> FloatingPetController.Bubble? { layout.bubble }
+
     var body: some View {
         let size = CGFloat(store.floatingPetSize)
-        let subject = companion.representativeSubject
-        let bubble = FloatingPetController.bubble(limitAlert: store.currentBubbleAlert, agent: agent.summary)
+        let l = L(companion.language)
+        let bubble = Self.speechBubble(layout: layout)
         VStack(spacing: 8) {
             if let bubble {
-                SpeechBubbleView(content: FloatingPetController.bubbleContent(bubble, l: L(companion.language)))
-                    .transition(.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity))
+                // Removal is instant, like the hearts: the panel drops the bubble headroom at the same moment
+                // (and the effects margin at a sequence's end), so a fading bubble would be drawn over the pet.
+                // Only the insertion carries an animation, on the transition itself: the bubble changes in the
+                // panel's frame step, so an animated transaction would also slide the pet into the resized
+                // panel, and on an older SwiftUI keep a removed bubble drawn for the animation's length.
+                SpeechBubbleView(content: FloatingPetController.bubbleContent(bubble, l: l))
+                    .transition(.asymmetric(insertion: Self.popIn(animated: animated), removal: .identity))
                     .zIndex(1)
             }
 
-            SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
-                       shiny: subject.isShiny,
-                       minFrameDelay: store.animationQuality.frameFloor, spriteStore: spriteStore, form: subject.form,
-                       back: companion.facesBack, reportsVisibleTop: true)
-                // One-shot wobble per prayer; keyframes run once per trigger change, never in a loop.
-                .keyframeAnimator(initialValue: 0.0, trigger: burst.wobbleCount) { sprite, angle in
-                    sprite.rotationEffect(.degrees(angle))
-                } keyframes: { _ in
-                    KeyframeTrack {
-                        LinearKeyframe(-9.0, duration: 0.06)
-                        LinearKeyframe(9.0, duration: 0.10)
-                        LinearKeyframe(-5.0, duration: 0.08)
-                        LinearKeyframe(0.0, duration: 0.06)
+            if Self.showsStage(layout: layout) {
+                // The sprite box stays where the resting pet stands; the stage (the box grown by its margin
+                // on every side) is centred on it, so the sprite at scale 1 lands exactly on the resting one.
+                // The panel adds the margin above and below (`panelSize(celebrating:)`).
+                let side = size + 2 * CelebrationStage.effectsMargin
+                Color.clear
+                    .frame(width: size, height: size)
+                    .overlay {
+                        Self.celebrationStage(player: celebration, size: size,
+                                              frameFloor: store.animationQuality.frameFloor, spriteStore: spriteStore)
+                            .frame(width: side, height: side)
                     }
-                }
-                .frame(width: size, height: size)
-                .overlay { PrayerEmojiLayer(burst: burst, size: size, animated: animated) }
-                // Hearts hug the visible top of the sprite (not its box). Insertion pops in; removal is
-                // instant, because the panel shrinks at the same moment and a fading bubble would be
-                // drawn lower, over the pet.
-                .overlayPreferenceValue(SpriteVisibleTopKey.self, alignment: .top) { visibleTop in
-                    if hearts.isShowing, bubble == nil {
-                        HeartBubbleView(l: L(companion.language))
-                            .offset(y: SpriteVisibleTop.bubbleTopOffset(
-                                visibleTop: visibleTop ?? 0,
-                                bubbleHeight: HeartBubbleArt.height,
-                                overlap: HeartBubbleArt.tailOverlap))
-                            .transition(.asymmetric(
-                                insertion: .scale(scale: 0.8, anchor: .bottom).combined(with: .opacity),
-                                removal: .identity))
-                            .allowsHitTesting(false)
-                    }
-                }
-                // Keep the attached heart and prayer particles aligned with the bobbing sprite.
-                .modifier(AgentBob(active: agent.bobs))
-                .zIndex(0)
+                    .padding(.vertical, CelebrationStage.effectsMargin)
+                    .zIndex(0)
+                    // The swap with the resting sprite is never animated: the panel frame switches in one step,
+                    // so a cross-fade drew the outgoing sprite at its old place in the new frame.
+                    .transition(.identity)
+            } else {
+                restingSprite(size: size, bubbleShowing: bubble != nil)
+                    .transition(.identity)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .bottom)
-        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
-                   value: bubble)
-        .animation(animated ? .spring(response: 0.3, dampingFraction: 0.7) : nil,
-                   value: hearts.isShowing)
+    }
+
+    /// A bubble's (speech or hearts) pop-in, animated by the transition alone, never by the transaction that
+    /// resizes the panel with it.
+    static func popIn(animated: Bool) -> AnyTransition {
+        guard animated else { return .identity }
+        return AnyTransition.scale(scale: 0.8, anchor: .bottom).combined(with: .opacity)
+            .animation(.spring(response: 0.3, dampingFraction: 0.7))
+    }
+
+    @ViewBuilder
+    private func restingSprite(size: CGFloat, bubbleShowing: Bool) -> some View {
+        // A pending hatch/evolve shows its source (the egg) until it is seen, even under the popover.
+        let subject = FloatingPetController.displayedSubject(representative: companion.representativeSubject,
+                                                             queue: companion.celebrations, player: celebration,
+                                                             liveSpeciesID: companion.currentSpeciesID)
+        SpriteView(speciesID: subject.speciesID, size: size, animated: animated,
+                   shiny: subject.isShiny,
+                   minFrameDelay: store.animationQuality.frameFloor, spriteStore: spriteStore, form: subject.form,
+                   back: companion.facesBack, reportsVisibleTop: true)
+            // One-shot wobble per prayer or incubation stir; runs once per trigger change, never in a loop.
+            .modifier(OneShotWobble(trigger: burst.wobbleCount))
+            .frame(width: size, height: size)
+            .overlay { PrayerEmojiLayer(burst: burst, size: size, animated: animated) }
+            // Hearts hug the visible top of the sprite (not its box). Insertion pops in; removal is
+            // instant, because the panel shrinks at the same moment and a fading bubble would be
+            // drawn lower, over the pet.
+            .overlayPreferenceValue(SpriteVisibleTopKey.self, alignment: .top) { visibleTop in
+                if layout.hearts, !bubbleShowing {
+                    HeartBubbleView(l: L(companion.language))
+                        .offset(y: SpriteVisibleTop.bubbleTopOffset(
+                            visibleTop: visibleTop ?? 0,
+                            bubbleHeight: HeartBubbleArt.height,
+                            overlap: HeartBubbleArt.tailOverlap))
+                        .transition(.asymmetric(insertion: Self.popIn(animated: animated), removal: .identity))
+                        .allowsHitTesting(false)
+                }
+            }
+            // Keep the attached heart and prayer particles aligned with the bobbing sprite.
+            .modifier(AgentBob(active: agent.bobs))
+            .zIndex(0)
     }
 
     /// `sulkIdle` > 0 appends how long the companion has been sulking: hours below 48 h, days from there.
+    /// `eggLine` is the egg's incubation tier (nil for a Pokémon), right above its prayer count.
     static func hoverTooltip(todayTokens: Int, limitUtilization: Double?,
                              mode: UsageStore.LimitDisplayMode, l: L, sulkIdle: TimeInterval = 0,
-                             eventLine: String? = nil, prayers: Int = 0) -> String {
+                             eventLine: String? = nil, eggLine: String? = nil, prayers: Int = 0) -> String {
         let usage = TokenFormatter.grouped(todayTokens)
         var base = l.floatingPetHoverTokensOnly(usage)
         if let pct = limitUtilization {
@@ -1097,6 +1556,7 @@ struct FloatingPetView: View {
             base += " · " + (hours < 48 ? l.floatingPetHoverSulkHours(hours) : l.floatingPetHoverSulkDays(hours / 24))
         }
         if let eventLine { base += "\n" + eventLine }
+        if let eggLine { base += "\n" + eggLine }
         return prayers > 0 ? base + "\n" + l.prayerHoverLine(prayers) : base
     }
 }
@@ -1117,6 +1577,9 @@ final class PrayerBurst {
     private(set) var particles: [Particle] = []
     /// Bumped on every prayer; the egg wobbles once per change.
     private(set) var wobbleCount = 0
+
+    /// One wobble without a particle: the resting egg stirring on its own (incubation tier).
+    func nudge() { wobbleCount += 1 }
 
     func spawn(xFraction: Double = .random(in: 0...1)) {
         let particle = Particle(xFraction: min(max(xFraction, 0), 1))
@@ -1210,20 +1673,23 @@ private struct AgentBob: ViewModifier {
     }
 }
 
-/// Transient limit-alert or agent bubble. Width is capped so copy wraps instead of clipping the panel.
+/// Transient limit-alert, agent or celebration bubble. Width is capped so copy wraps instead of clipping the panel.
 @MainActor
-private struct SpeechBubbleView: View {
+struct SpeechBubbleView: View {
     let content: FloatingPetController.SpeechBubbleContent
 
     var body: some View {
         VStack(alignment: .leading, spacing: 2) {
-            Text(content.title)
-                .font(.system(size: 11, weight: .bold))
-                .foregroundColor(content.isCritical ? .red : .primary)
+            // Untitled = the pet speaking (a celebration line): the line itself is the message.
+            if !content.title.isEmpty {
+                Text(content.title)
+                    .font(.system(size: 11, weight: .bold))
+                    .foregroundColor(content.isCritical ? .red : .primary)
+            }
             Text(content.body)
                 .font(.system(size: 10))
-                .foregroundColor(.secondary)
-                .lineLimit(FloatingPetController.bubbleBodyLineLimit)
+                .foregroundColor(content.title.isEmpty ? .primary : .secondary)
+                .lineLimit(FloatingPetController.bodyLineLimit(titled: !content.title.isEmpty))
                 .fixedSize(horizontal: false, vertical: true)
         }
         .frame(width: FloatingPetController.bubbleContentWidth, alignment: .leading)
@@ -1294,7 +1760,8 @@ struct PettingDetector {
     }
 }
 
-/// Whether the heart bubble is up. Owned by the controller so the hosted view is built once and only observes this.
+/// Whether the heart bubble is up. Controller state: the view draws the hearts from `FloatingPetLayoutModel.hearts`,
+/// written with the panel frame.
 @MainActor @Observable
 final class PetHeartState {
     var isShowing = false

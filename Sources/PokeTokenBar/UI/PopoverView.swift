@@ -53,6 +53,14 @@ final class PopoverNavigation {
     /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
     var expandAdvancedOnOpen = false
 
+    /// A hatch/evolve sequence plays on the Home sprite: bring Home back from another tab (an open
+    /// Pokédex page goes with the Collection tab). Settings and the Recap are never closed for it: they may
+    /// hold a draft, and the item simply waits until Home is shown.
+    static func homeForCelebration(_ nav: PopoverNavigation) {
+        guard !nav.showSettings, !nav.showingRecap else { return }
+        nav.tab = .home
+    }
+
     func reset() {
         showSettings = false
         expandAdvancedOnOpen = false
@@ -92,6 +100,13 @@ struct PopoverView: View {
 
     private var l: L { companion.l }
     @State private var showingClaudeKeychainHelp = false
+    /// Reduce Motion / Low Power for the header's sequences. Injectable so tests don't depend on the
+    /// host's accessibility settings (CI runners may have Reduce Motion on).
+    private let motion: @MainActor () -> MotionSettings
+
+    init(motion: @escaping @MainActor () -> MotionSettings = { .system }) {
+        self.motion = motion
+    }
 
     var body: some View {
         // NOTE: 설정을 .sheet 로 띄우면 transient 팝오버가 닫힐 때 시트가 고아로 남아
@@ -118,6 +133,11 @@ struct PopoverView: View {
         }
         .frame(width: PopoverMetrics.width)
         .environment(\.locale, companion.language.displayLocale)
+        // A sequence queued while the popover is open plays live, on Home. Observes every new item, so one
+        // queued behind a head still waiting (it arrived while Settings was open) brings Home back too.
+        .onChange(of: companion.celebrations.lastEnqueuedID) {
+            if companion.celebrations.next(for: .popover) != nil { PopoverNavigation.homeForCelebration(nav) }
+        }
     }
 
     @ViewBuilder
@@ -167,9 +187,11 @@ struct PopoverView: View {
                 ShopView(store: companion, nav: nav)
             } else {
                 // 고정 높이 — 상점/가방/컬렉션과 동일(팝오버가 화면을 넘어가는 것을 방지).
-                ScrollView {
+                // Returns to its top (the header) when a celebration arrives — see `CelebrationScrollView`.
+                CelebrationScrollView(companion: companion) {
                     VStack(alignment: .leading, spacing: 12) {
-                        CompanionHeader(store: companion) { nav.openDexEntry(collectionID: $0) }
+                        CompanionHeader(store: companion, onOpenDexEntry: { nav.openDexEntry(collectionID: $0) },
+                                        motion: motion)
                         Divider()
                         header
                         Divider()
@@ -179,13 +201,14 @@ struct PopoverView: View {
                             Divider()
                         }
                     }
-                    .reservesScrollerLane()
                 }
                 .frame(height: 520)
             }
             footer
         }
         .padding(PopoverMetrics.padding)
+        // Above the Home ScrollView, so a celebration's effects are not clipped by it.
+        .celebrationStageHost()
     }
 
     // MARK: 헤더 — 오늘 합계 + provider/토큰타입 분해
