@@ -1729,7 +1729,10 @@ final class CompanionIdentityTests: XCTestCase {
         let thr = PokemonBalance.phaseThreshold(rarity: .common, totalForms: 3, stageIndex: 0)
         s.applyUsage(thr)
         XCTAssertEqual(s.celebrationSeq, 2)
-        XCTAssertEqual(s.celebration, .evolve)
+        // 진화 연출은 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다).
+        guard case .evolve(1, 2, s.currentIsShiny, nil, _, _) = s.celebration else {
+            return XCTFail("1→2 진화 연출이어야 함: \(String(describing: s.celebration))")
+        }
     }
 
     /// [회귀] 라인 미로딩(재시작 직후/오프라인) 중 델타가 유실되지 않고 적립, 라인 로드 후 진화 판정.
@@ -1800,11 +1803,13 @@ final class CompanionIdentityTests: XCTestCase {
         await s.hatchIfNeeded()
         XCTAssertEqual(s.state.active?.isShiny, true)
         XCTAssertEqual(s.state.active?.stageIndex, 1, "이월로 1회 진화했어야 함")
-        XCTAssertEqual(s.celebration, .hatch(shiny: true), "evolve 가 shiny 부화 버스트를 덮으면 안 된다")
+        XCTAssertEqual(s.pendingCelebrations, [.hatch(shiny: true, rarity: .common)],
+                       "이월 evolve 는 버린다 — 부화 공개가 이미 진화 뒤 모습을 보여 준다")
     }
 
-    /// [회귀] 이월이 졸업 총량을 넘어 부화 즉시 졸업한 극단 케이스 — hatch 연출은 생략(이미 도감행).
-    func testHatchCelebrationSkippedOnInstantGraduate() async {
+    /// 이월이 졸업 총량을 넘어 부화 즉시 졸업한 극단 케이스 — 부화 → 졸업 순으로 둘 다 재생한다
+    /// (예전엔 부화를 건너뛰어 알이 깨지는 순간 없이 도감행이 됐다).
+    func testInstantGraduateQueuesHatchThenGraduation() async {
         let s = store(noEvo, seed: 11)
         s.update(todayTokensByProvider: ["test": 0], todayDate: "d1", monthTotal: 0, burnTier: .idle, limitWarning: false, hasUsageData: true)
         // 알 임계 + 졸업 총량(750M) 초과
@@ -1812,7 +1817,9 @@ final class CompanionIdentityTests: XCTestCase {
         await s.hatchIfNeeded()
         XCTAssertNil(s.state.active, "즉시 졸업")
         XCTAssertEqual(s.state.dex.count, 1)
-        XCTAssertNil(s.celebration, "떠난 mon 의 hatch 연출을 재생하면 안 된다")
+        let shiny = s.state.dex[0].isShiny
+        XCTAssertEqual(s.pendingCelebrations, [.hatch(shiny: shiny, rarity: .common),
+                                               .graduate(speciesID: 20, shiny: shiny, form: nil)])
     }
 
     // MARK: 부화 샘플러 (PokéAPI rejection sampling — 하드코딩 풀 대체)

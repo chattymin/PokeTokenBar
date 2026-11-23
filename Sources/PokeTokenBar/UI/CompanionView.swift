@@ -667,12 +667,10 @@ struct CompanionHeader: View {
     var onOpenDexEntry: ((String) -> Void)? = nil
     /// Injectable so render tests stay offline and away from the real sprite cache.
     var spriteStore: SpriteStore = .shared
-    // 연출 상태 — 부화/진화 순간 흰 플래시 + 스프링 스케일(본가 진화 신 오마주)
-    @State private var flashOpacity: Double = 0
-    @State private var celebScale: CGFloat = 1
-    @State private var shinyBurst = false
-    @State private var dittoBurst = false   // 메타몽 리빌 🎭 버스트
-    @State private var seenSeq = -1     // 재생 완료한 celebrationSeq (팝오버 재오픈 시 1회 재생 보장)
+    // 연출 재생은 store 의 `CelebrationStage` 하나를 플로팅 펫과 함께 본다(같은 연출을 두 번 보지 않게).
+    // 이 헤더는 보이는 동안 관객으로 등록(attach)할 뿐 — 공개 전에 모든 관객이 사라지면 연출은 큐에 남아
+    // 다음 시작이 처음부터 다시 재생한다.
+    @State private var viewerID = UUID()
     @State private var eggWiggle = false
     // 사탕 "+XP" 순간 표시 (진화 없이 부분 진행일 때도 피드백)
     @State private var seenCandySeq = -1
@@ -698,27 +696,17 @@ struct CompanionHeader: View {
         let dexLinks = onOpenDexEntry == nil ? [:] : store.dexLinkTargets
         VStack(alignment: .leading, spacing: 6) {
             HStack(alignment: .center, spacing: 12) {
-                SpriteView(speciesID: store.currentSpeciesID, size: 76, bob: true, animated: true,
-                           shiny: store.currentIsShiny, spriteStore: spriteStore, form: store.currentForm,
-                           back: store.facesBack)
+                spriteBox
                     .frame(width: 76, height: 76)
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
-                    .scaleEffect(celebScale)
-                    .overlay(RoundedRectangle(cornerRadius: 12).fill(.white).opacity(flashOpacity))
-                    .overlay(alignment: .topTrailing) {
-                        if shinyBurst {
-                            Text("✨").font(.system(size: 22))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(x: 6, y: -6)
-                        }
-                    }
-                    .overlay(alignment: .top) {
-                        if dittoBurst {
-                            Text("🎭").font(.system(size: 26))
-                                .transition(.scale.combined(with: .opacity))
-                                .offset(y: -12)
+                    // 무대 — 재생 중엔 연출 전체(스프라이트 + 빛)가 칸에서 빠져나와 크게 펼쳐진다
+                    // (`CelebrationStageLayout`). 둥근 칸에 잘리지 않게 clipShape 뒤에 얹는다.
+                    .overlay {
+                        if let active = stage.active {
+                            CelebrationStageView(active: active, size: 76 * CelebrationStageLayout.scale, layer: .both,
+                                                 spriteStore: spriteStore, staged: true)
                         }
                     }
                     .overlay(alignment: .top) {
@@ -745,8 +733,16 @@ struct CompanionHeader: View {
                     // An egg has no species (nil) and therefore no link.
                     .modifier(DexEntryLink(
                         target: store.currentSpeciesID.flatMap { dexLinks[$0] },
-                        hint: store.l.dexOpenEntryHint, accessibilityName: store.displayName,
+                        hint: store.l.dexOpenEntryHint,
+                        accessibilityName: concealment == nil ? store.displayName : nil,
                         cornerRadius: 12, open: onOpenDexEntry))
+                    // 공개 전엔 링크를 끈다. target 을 nil 로 바꾸면 DexEntryLink 가 Button↔content 로 갈려
+                    // 공개 순간 칸의 구조적 정체성이 바뀌고 안의 스프라이트가 다시 마운트된다 → 분기 없이 막는다.
+                    .allowsHitTesting(concealment == nil)
+                    // allowsHitTesting 은 포인터만 막는다 — 키보드(Tab·Space)·VoiceOver 로도 공개 전 도감을 못 열게 같이 끈다.
+                    .disabled(concealment != nil)
+                    // 무대가 옆의 정보 칸·아래 줄보다 위에 그려지게(나중 형제가 위에 그려진다).
+                    .zIndex(stage.active == nil ? 0 : 1)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(store.displayName).font(.callout.weight(.semibold))
@@ -814,16 +810,27 @@ struct CompanionHeader: View {
                     }
                     Text(statusLine).font(.caption2).foregroundStyle(.secondary)
                 }
+                // 공개 전엔 새 모습의 이름·등급·타입·단계가 결과를 먼저 말하지 않게 가린다. 레이아웃은
+                // 유지(불투명도 0)해 공개 순간 칸이 출렁이지 않고, 그 자리엔 알/옛 단계 문구를 얹는다.
+                .opacity(concealment == nil ? 1 : 0)
+                .accessibilityHidden(concealment != nil)
+                .overlay(alignment: .topLeading) { concealedCaption }
+                .animation(.easeIn(duration: 0.3), value: concealment == nil)
                 Spacer()
             }
+            // 빛 층이 오른쪽 정보 칸·아래 진화 줄 위로 넘쳐 그려지도록 앞에 둔다.
+            .zIndex(1)
             if store.hasActive, !store.lineNodes.isEmpty {
                 // 폭을 안 주면 분기 라인(이브이)이 넘쳐 팝오버 콘텐츠 전체가 좌우로 잘린다.
                 EvoLineView(nodes: store.lineNodes, mysteryLabel: store.l.unknownNextEvolution,
                             language: store.language, shiny: store.currentIsShiny,
                             maxWidth: PopoverMetrics.scrollContentWidth, form: store.currentForm,
                             dexLinks: dexLinks, onOpenDexEntry: onOpenDexEntry, spriteStore: spriteStore)
+                    .opacity(concealment == nil ? 1 : 0)
+                    .accessibilityHidden(concealment != nil)
+                    .animation(.easeIn(duration: 0.3), value: concealment == nil)
             }
-            if let g = store.justGraduated {
+            if let g = store.justGraduated, concealment == nil {
                 Text(store.l.graduated(g))
                     .font(.caption2).foregroundStyle(.orange)
             }
@@ -834,44 +841,51 @@ struct CompanionHeader: View {
             if store.hasActive, let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
         }
         .onAppear {
-            playCelebrationIfNeeded()
+            stage.attach(viewerID)
             showCandyXPIfNeeded()
             showMintIfNeeded()
             syncEggWiggle()
         }
-        .onChange(of: store.celebrationSeq) { playCelebrationIfNeeded() }
+        .onDisappear { stage.detach(viewerID) }
+        .onChange(of: store.celebrationSeq) { stage.kick() }
         .onChange(of: store.candyFeedbackSeq) { showCandyXPIfNeeded() }
         .onChange(of: store.mintFeedbackSeq) { showMintIfNeeded() }
         .onChange(of: eggImminent) { syncEggWiggle() }
         .task(id: store.currentForm) { await store.loadActiveFormNames() }   // The title names the form.
     }
 
-    /// 부화/진화 연출 1회 재생 — 흰 플래시 페이드아웃 + 스프링 팝. shiny 부화는 ✨ 버스트 추가.
-    private func playCelebrationIfNeeded() {
-        guard let c = store.celebration, store.celebrationSeq != seenSeq else { return }
-        seenSeq = store.celebrationSeq
-        store.consumeCelebration()
-        flashOpacity = 0.85
-        celebScale = 0.6
-        withAnimation(.easeOut(duration: 0.8)) { flashOpacity = 0 }
-        withAnimation(.spring(response: 0.5, dampingFraction: 0.55)) { celebScale = 1 }
-        if case .hatch(shiny: true) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.3)) { shinyBurst = true }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { shinyBurst = false }
-            }
+    private var stage: CelebrationStage { store.celebrationStage }
+
+    /// 칸 내용 — 재생 중이면 비운다(연출은 무대 오버레이가 칸 밖에서 그린다), 아니면 평소 모습(큐 맨 앞
+    /// 연출의 직전 모습을 붙든다).
+    @ViewBuilder
+    private var spriteBox: some View {
+        if stage.active != nil {
+            Color.clear
+        } else {
+            let s = stage.idleSprite
+            SpriteView(speciesID: s.speciesID, size: 76, bob: true, animated: true, shiny: s.shiny,
+                       spriteStore: spriteStore, form: s.form, back: s.back)
         }
-        // 메타몽 리빌 — 위장체→메타몽 스프라이트 교체를 플래시가 덮고, 🎭 버스트(이로치면 ✨ 동반).
-        if case .dittoReveal(let shiny) = c {
-            withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.25)) { dittoBurst = true }
-            if shiny {
-                withAnimation(.spring(response: 0.4, dampingFraction: 0.5).delay(0.45)) { shinyBurst = true }
+    }
+
+    private var concealment: CelebrationPlayer.Concealment? {
+        CelebrationPlayer.concealment(store.pendingCelebrations)
+    }
+
+    @ViewBuilder
+    private var concealedCaption: some View {
+        switch concealment {
+        case .egg?:
+            Text(store.l.eggImminent).font(.caption.weight(.semibold)).foregroundStyle(.orange)
+        case .subject(let name, let rarity)?:
+            // 공개 전 모습(진화 전 단계·메타몽의 위장체)의 이름 — 위장체는 등급 배지까지 그대로 흉내 낸다.
+            HStack(spacing: 6) {
+                Text(name).font(.callout.weight(.semibold))
+                if let rarity { Badge(store.l.rarityLabel(rarity).uppercased(), tint: .rarity(rarity)) }
             }
-            Task { @MainActor in
-                try? await Task.sleep(nanoseconds: 2_600_000_000)
-                withAnimation(.easeOut(duration: 0.5)) { dittoBurst = false; shinyBurst = false }
-            }
+        case nil:
+            EmptyView()
         }
     }
 

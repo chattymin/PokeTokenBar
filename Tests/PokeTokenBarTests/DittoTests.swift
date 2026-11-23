@@ -145,7 +145,12 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.state.active?.plannedPathIDs, [132])
         XCTAssertEqual(s.state.active?.usedAtStage, 300_000_000 - 125_000_000, "첫 진화 초과분 이월")
         XCTAssertNotNil(s.state.active?.dittoDisguise, "위장 마커 보존")
-        XCTAssertEqual(s.celebration, .dittoReveal(shiny: false), "리빌 연출 발화")
+        guard case .dittoReveal(false, let disguise) = s.celebration else {
+            return XCTFail("리빌 연출 발화: \(String(describing: s.celebration))")
+        }
+        // 위장체(위장 라인 = common, 종 1)를 싣는다 — 재생 시점엔 이미 메타몽이라 상태에서 못 읽는다.
+        XCTAssertEqual(disguise.speciesID, 1)
+        XCTAssertEqual(disguise.rarity, .common)
     }
 
     func testRevealRebasesDisguiseProfileAndLoadsDittoDetails() async {
@@ -324,7 +329,12 @@ final class DittoRevealTests: XCTestCase {
         await drainReveal(s)
         XCTAssertTrue(s.state.active?.dittoRevealed ?? false)
         XCTAssertTrue(s.currentIsShiny, "리빌 후 이로치 공개")
-        XCTAssertEqual(s.celebration, .dittoReveal(shiny: true), "이로치 리빌 연출")
+        guard case .dittoReveal(true, let disguise) = s.celebration else {
+            return XCTFail("이로치 리빌 연출: \(String(describing: s.celebration))")
+        }
+        // 위장체(위장 라인 = common, 종 1)를 싣는다 — 재생 시점엔 이미 메타몽이라 상태에서 못 읽는다.
+        XCTAssertEqual(disguise.speciesID, 1)
+        XCTAssertEqual(disguise.rarity, .common)
     }
 
     /// 임계 미달이면 리빌하지 않는다(위장 유지).
