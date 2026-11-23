@@ -421,6 +421,8 @@ struct SettingsView: View {
             Divider()
             toggleRow(l.companionNotificationsLabel, $store.companionNotifications)
             Divider()
+            toggleRow(l.celebrationSoundsLabel, $store.celebrationSounds)
+            Divider()
             groupRow {
                 VStack(alignment: .leading, spacing: 1) {
                     Text(l.statusChecksLabel)

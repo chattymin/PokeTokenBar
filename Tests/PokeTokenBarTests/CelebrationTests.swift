@@ -804,3 +804,56 @@ final class CelebrationStageLayoutTests: XCTestCase {
         }
     }
 }
+
+/// 효과음: 그림과 같은 시각표에 맞춰 울리고, 등급이 높을수록 공개 화음이 길다.
+final class CelebrationSoundTests: XCTestCase {
+    private typealias S = CelebrationSound
+    private func hatch(_ r: Rarity) -> CelebrationPlayer.Kind {
+        .hatch(HatchEffect.profile(for: r), egg: .init(speciesID: nil), reveal: .init(speciesID: 1))
+    }
+
+    func testHatchSoundsFollowTheCracksAndTheChimeGrowsWithRarity() {
+        for r in [Rarity.common, .uncommon, .rare, .legendary] {
+            let p = HatchEffect.profile(for: r)
+            let cues = S.cues(for: hatch(r), reduceMotion: false)
+            XCTAssertEqual(cues.filter { $0.sound == .crack }.map(\.at), HatchEffect.crackTimes(p).sorted(),
+                           "\(r): 금이 가는 순간마다 빠직")
+            XCTAssertEqual(cues.filter { $0.sound == .tap }.count, p.wobbles)
+            XCTAssertTrue(cues.contains(S.Cue(at: p.revealAt, sound: .pop)), "깨지는 순간 팝")
+            XCTAssertTrue(cues.contains { $0.sound == .chime(notes: 2 + r.sortRank) })
+            XCTAssertEqual(cues.map(\.at), cues.map(\.at).sorted())
+            XCTAssertTrue(cues.allSatisfy { $0.at >= 0 && $0.at < p.duration })
+        }
+        XCTAssertGreaterThan(S.samples(.chime(notes: 5)).count, S.samples(.chime(notes: 2)).count, "전설은 여운이 길다")
+    }
+
+    func testEvolutionBlipsLandOnEverySilhouetteSwap() {
+        let swaps = S.evolutionSwaps()
+        XCTAssertEqual(swaps.count, 9, "옛↔새 4.5 주기")
+        let cues = S.cues(for: .evolve(from: .init(speciesID: 4), to: .init(speciesID: 5)), reduceMotion: false)
+        XCTAssertEqual(cues.filter { if case .blip = $0.sound { true } else { false } }.map(\.at), swaps)
+        XCTAssertTrue(cues.contains(S.Cue(at: EvolutionEffect.revealAt, sound: .fanfare)))
+    }
+
+    func testGraduationFollowsTheBall() {
+        let cues = S.cues(for: .graduate(.init(speciesID: 6), egg: .init(speciesID: nil)), reduceMotion: false)
+        XCTAssertEqual(cues.filter { $0.sound == .tick }.map(\.at), GraduationEffect.wobbleStarts.map { $0 + 0.04 },
+                       "세 번 흔들림")
+        XCTAssertTrue(cues.contains(S.Cue(at: GraduationEffect.clickAt, sound: .click)), "딸깍 — 포획 확정")
+        let reduced = S.cues(for: .graduate(.init(speciesID: 6), egg: .init(speciesID: nil)), reduceMotion: true)
+        XCTAssertEqual(reduced.count, 1, "동작 줄이기면 딸깍 한 번")
+    }
+
+    func testRenderedMixStaysInRangeAndStartsOnCue() {
+        let cues = S.cues(for: hatch(.legendary), reduceMotion: false)
+        let mix = S.render(cues, length: 4)
+        XCTAssertEqual(mix.count, Int(4 * S.sampleRate))
+        XCTAssertTrue(mix.allSatisfy { abs($0) <= 1 })
+        XCTAssertGreaterThan(mix.map(abs).max() ?? 0, 0.05, "소리가 난다")
+        let first = Int(cues[0].at * S.sampleRate)
+        XCTAssertTrue(mix[0..<max(0, first - 1)].allSatisfy { $0 == 0 }, "첫 큐 전엔 조용하다")
+        let wav = S.wav(Array(mix.prefix(100)))
+        XCTAssertEqual(wav.count, 44 + 200)
+        XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
+    }
+}

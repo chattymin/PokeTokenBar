@@ -167,6 +167,11 @@ final class UsageStore {
     var companionNotifications: Bool {
         didSet { defaults.set(companionNotifications, forKey: "companionNotifications") }
     }
+    /// 부화·진화·졸업 연출의 효과음(기본 켬). 연출 재생(`CelebrationStage`)이 같은 키를 직접 읽는다.
+    static let celebrationSoundsKey = "celebrationSounds"
+    var celebrationSounds: Bool {
+        didSet { defaults.set(celebrationSounds, forKey: Self.celebrationSoundsKey) }
+    }
     /// 새 버전 알림(팝오버 업데이트 배너) 표시 여부 — 기본 켬. 끄면 배너 숨김(수동 확인은 설정에서 가능).
     var updateNotificationsEnabled: Bool {
         didSet { defaults.set(updateNotificationsEnabled, forKey: "updateNotificationsEnabled") }
@@ -963,6 +968,7 @@ final class UsageStore {
             rawValue: d.string(forKey: "activityVisualization") ?? "") ?? .default
         limitNotifications = d.object(forKey: "limitNotifications") as? Bool ?? true
         companionNotifications = d.object(forKey: "companionNotifications") as? Bool ?? true
+        celebrationSounds = d.object(forKey: Self.celebrationSoundsKey) as? Bool ?? true
         updateNotificationsEnabled = d.object(forKey: "updateNotificationsEnabled") as? Bool ?? true
         statusChecksEnabled = d.object(forKey: "statusChecksEnabled") as? Bool ?? true
         floatingPetEnabled = d.object(forKey: "floatingPetEnabled") as? Bool ?? false

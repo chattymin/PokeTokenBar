@@ -202,6 +202,11 @@ final class CelebrationStage {
     @ObservationIgnored var reduceMotion: () -> Bool = { NSWorkspace.shared.accessibilityDisplayShouldReduceMotion }
     /// 테스트는 false 로 두고 `tick()` 을 직접 부른다(가짜 시계로 결정적으로).
     @ObservationIgnored var schedulesTimers = true
+    /// 효과음 — 번들 앱에서만(테스트·개발 빌드가 소리를 내지 않게), 설정에서 끌 수 있다(기본 켬).
+    @ObservationIgnored var playsSounds: () -> Bool = {
+        AppEnv.isBundledApp && (UserDefaults.standard.object(forKey: UsageStore.celebrationSoundsKey) as? Bool ?? true)
+    }
+    @ObservationIgnored private let sounds = CelebrationSoundPlayer()
 
     init(store: CompanionStore) { self.store = store }
 
@@ -231,6 +236,7 @@ final class CelebrationStage {
         timer?.cancel()
         timer = nil
         player.reset()
+        sounds.stop()
     }
 
     /// 보는 화면이 있고 쉬고 있으면 큐 맨 앞을 시작한다. 새 연출이 쌓였을 때도 부른다.
@@ -239,6 +245,8 @@ final class CelebrationStage {
         if player.active == nil {
             player.startIfIdle(queue: store, current: currentSprite, reduceMotion: reduceMotion(), now: clock())
         }
+        // 연출 하나당 한 번(serial) — 이미 울리는 중이면 그대로 둔다.
+        if let a = player.active, playsSounds() { sounds.play(a, elapsed: clock().timeIntervalSince(a.start)) }
         schedule()
     }
 
@@ -248,6 +256,7 @@ final class CelebrationStage {
         guard let store, let a = player.active, !a.consumed,
               store.pendingCelebrations.first != a.celebration else { return }
         player.reset()
+        sounds.stop()
         kick()
     }
 
