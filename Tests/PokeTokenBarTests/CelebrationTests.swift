@@ -230,6 +230,18 @@ final class CelebrationParticleTests: XCTestCase {
         XCTAssertGreaterThan(late.map(\.y).reduce(0, +), early.map(\.y).reduce(0, +))
     }
 
+    /// 펫 말풍선은 연출이 공개하기 전엔 무엇이 나왔는지 말하지 않는다 — 공개(큐에서 빠짐) 뒤에 띄운다.
+    @MainActor
+    func testPetBubbleWaitsForTheRevealBeforeNamingTheResult() {
+        XCTAssertTrue(FloatingPetController.shouldHoldEvent(pending: [.hatch(shiny: false, rarity: .legendary)]),
+                      "알이 깨지기 전엔 부화한 포켓몬 이름을 말하지 않는다")
+        XCTAssertTrue(FloatingPetController.shouldHoldEvent(pending: [
+            .evolve(fromID: 4, toID: 5, shiny: false, form: nil, fromName: "파이리", rarity: .common)]))
+        XCTAssertFalse(FloatingPetController.shouldHoldEvent(pending: [.graduate(speciesID: 6, shiny: false, form: nil)]),
+                       "졸업은 감출 게 없다")
+        XCTAssertFalse(FloatingPetController.shouldHoldEvent(pending: []), "공개가 끝나면 바로 띄운다")
+    }
+
     /// 플로팅 펫의 빛 층 창은 펫 스프라이트 칸(펫 창 아래쪽 가운데) 중심에 overflow 배로 놓인다.
     @MainActor
     func testFloatingEffectPanelIsCenteredOnThePetSprite() {

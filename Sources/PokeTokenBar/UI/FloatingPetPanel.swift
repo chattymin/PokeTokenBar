@@ -277,6 +277,14 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return petVisible && !bubbleShowing
     }
 
+    /// 연출이 아직 공개하지 않은 결과가 있으면 말풍선을 미룬다. 부화 이벤트("알에서 리자몽이 나왔어요!")는
+    /// 알이 깨지기 **전에** 도착하므로, 바로 띄우면 연출이 맞히게 하려던 등급·정체를 말풍선이 먼저 말해 버린다
+    /// (사용자 실사용 피드백). 공개 순간 연출이 큐에서 빠지면 그때 띄운다 — 연출을 볼 화면이 없어 대기 중이면
+    /// 그만큼 기다린다(졸업은 감출 게 없어 바로 띄운다).
+    static func shouldHoldEvent(pending: [CompanionStore.Celebration]) -> Bool {
+        CelebrationPlayer.concealment(pending) != nil
+    }
+
     /// Minimum gap between prayer-triggered refreshes. A refresh also queries the limit endpoints
     /// (Claude, Codex, Cursor, Antigravity), which have their own rate limits.
     static let prayerRefreshInterval: TimeInterval = 30
@@ -351,6 +359,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             _ = companion.latestEvent        // hover text shows the latest hatch / evolution line
             _ = companion.representativeSubject
             _ = companion.celebrationStage.active   // 연출 빛 층 창을 띄우고 거둔다
+            _ = companion.pendingCelebrations       // 공개 순간(큐에서 빠질 때) 미뤄 둔 말풍선을 띄운다
         } onChange: { [weak self] in
             Task { @MainActor in
                 guard let self else { return }
@@ -705,6 +714,8 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
     /// Show the callout by itself for `eventPopDuration` when a new event arrived. One-shot task, no standing timer.
     private func popEventIfNew() {
         guard let event = companion.latestEvent, event.seq != lastSeenEventSeq else { return }
+        // 아직 "본 것"으로 치지 않는다 — 공개 순간 큐가 바뀌면 이 함수가 다시 불려 그때 띄운다.
+        guard !Self.shouldHoldEvent(pending: companion.pendingCelebrations) else { return }
         let shouldPop = Self.shouldPopEvent(eventSeq: event.seq, lastSeenSeq: lastSeenEventSeq,
                                             petVisible: panel?.isVisible == true, bubbleShowing: showingBubble)
         lastSeenEventSeq = event.seq   // seen either way: a missed event is not queued
