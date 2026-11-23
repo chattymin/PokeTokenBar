@@ -314,6 +314,16 @@ enum CelebrationStageLayout {
         let exitP = 1 - CelebrationFX.smoothstep(duration - exit, duration, t)
         return min(enterP, exitP)
     }
+
+    /// 연출 한 장면의 배율·이동. **무대가 아니면(플로팅 펫) 언제나 제자리·원래 크기다** — 예전엔 이동만
+    /// `staged` 를 안 보고 걸어서, 진행도가 1 로 고정된 펫이 연출 내내 오른쪽 아래로 (96, 34)pt 밀렸다.
+    /// 96pt 펫 창 밖으로 나간 알·포켓몬은 통째로 안 보였고 빛은 빛 층 창 가장자리에 잘렸다(실화면 실측).
+    static func placement(staged: Bool, at t: TimeInterval, duration: TimeInterval,
+                          reduceMotion: Bool) -> (scale: CGFloat, offset: CGSize) {
+        guard staged else { return (1, .zero) }
+        let p = CGFloat(progress(at: t, duration: duration, reduceMotion: reduceMotion))
+        return ((1 + (scale - 1) * p) / scale, CGSize(width: travel.width * p, height: travel.height * p))
+    }
 }
 
 /// 재생 중인 연출 한 장면을 화면에 그린다 — 헤더·플로팅 펫 공용. 스프라이트 뷰는 연출마다 한 번 만들고
@@ -345,11 +355,12 @@ struct CelebrationStageView: View {
         let staged = staged
         TimelineView(.animation) { context in
             let elapsed = max(0, context.date.timeIntervalSince(start))
-            let p = staged ? CelebrationStageLayout.progress(at: elapsed, duration: duration, reduceMotion: reduce) : 1
+            let place = CelebrationStageLayout.placement(staged: staged, at: elapsed, duration: duration,
+                                                        reduceMotion: reduce)
             CelebrationSequenceView(kind: kind, elapsed: elapsed, size: size, reduceMotion: reduce, layer: layer,
                                     sprites: sprites)
-                .scaleEffect(staged ? (1 + (CelebrationStageLayout.scale - 1) * p) / CelebrationStageLayout.scale : 1)
-                .offset(x: CelebrationStageLayout.travel.width * p, y: CelebrationStageLayout.travel.height * p)
+                .scaleEffect(place.scale)
+                .offset(place.offset)
         }
     }
 }

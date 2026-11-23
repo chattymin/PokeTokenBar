@@ -803,6 +803,35 @@ final class CelebrationStageLayoutTests: XCTestCase {
                            "동작 줄이기면 칸에서 그대로")
         }
     }
+
+    /// 플로팅 펫은 무대가 아니다 — 96pt 펫 창 안에서 제자리에 그려야 알·포켓몬이 보인다.
+    /// (이동을 무대 여부와 상관없이 걸던 때, 펫은 연출 내내 (96, 34)pt 밀려 창 밖으로 사라졌다.)
+    func testFloatingPetIsNeverMovedOrScaled() {
+        let d = 3.0
+        for t in stride(from: 0.0, through: d, by: 0.05) {
+            for reduce in [false, true] {
+                let place = CelebrationStageLayout.placement(staged: false, at: t, duration: d, reduceMotion: reduce)
+                XCTAssertEqual(place.scale, 1, "t=\(t)")
+                XCTAssertEqual(place.offset, .zero, "t=\(t)")
+            }
+        }
+    }
+
+    func testHeaderStageMovesOutAndBack() {
+        let d = 3.0
+        let start = CelebrationStageLayout.placement(staged: true, at: 0, duration: d, reduceMotion: false)
+        XCTAssertEqual(start.offset, .zero)
+        XCTAssertEqual(start.scale, 1 / CelebrationStageLayout.scale, accuracy: 1e-9, "시작은 칸 크기")
+        let mid = CelebrationStageLayout.placement(staged: true, at: 1.5, duration: d, reduceMotion: false)
+        XCTAssertEqual(mid.offset.width, CelebrationStageLayout.travel.width, accuracy: 1e-9)
+        XCTAssertEqual(mid.offset.height, CelebrationStageLayout.travel.height, accuracy: 1e-9)
+        XCTAssertEqual(mid.scale, 1, accuracy: 1e-9, "가운데는 무대 크기")
+        let end = CelebrationStageLayout.placement(staged: true, at: d, duration: d, reduceMotion: false)
+        XCTAssertEqual(end.offset.width, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.offset.height, 0, accuracy: 1e-9)
+        let reduced = CelebrationStageLayout.placement(staged: true, at: 1.5, duration: d, reduceMotion: true)
+        XCTAssertEqual(reduced.offset, .zero, "동작 줄이기면 칸에서 그대로")
+    }
 }
 
 /// 효과음: 그림과 같은 시각표에 맞춰 울리고, 등급이 높을수록 공개 화음이 길다.
