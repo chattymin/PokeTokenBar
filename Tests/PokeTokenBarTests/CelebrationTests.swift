@@ -896,3 +896,108 @@ final class CelebrationSoundTests: XCTestCase {
         XCTAssertEqual(String(decoding: wav.prefix(4), as: UTF8.self), "RIFF")
     }
 }
+
+// MARK: 놓아주기(상점에서 새 알)
+
+/// 작별 순서: 깡충 두 번(하트) → 돌아서기(뒷모습) → 뒤뚱뒤뚱 멀어지며 작아져 사라짐 → 반짝 → 새 알이 톡.
+final class ReleaseEffectTests: XCTestCase {
+    private typealias R = ReleaseEffect
+
+    func testFarewellOrder() {
+        let start = R.frame(at: 0)
+        XCTAssertEqual(start.monOpacity, 1); XCTAssertEqual(start.monScale, 1); XCTAssertEqual(start.eggOpacity, 0)
+        XCTAssertFalse(start.facingAway, "처음엔 앞모습으로 인사")
+        for s in R.hopStarts {
+            XCTAssertLessThan(R.frame(at: s + R.hopLength / 2).monY, -0.05, "깡충")
+        }
+        XCTAssertGreaterThan(R.frame(at: 0.4).heart, 0, "하트가 떠오른다")
+        XCTAssertLessThan(R.frame(at: R.turnStart + R.turnLength / 2).monSquashX, 0.2, "돌아서는 순간 납작")
+        XCTAssertTrue(R.frame(at: R.turnStart + R.turnLength).facingAway, "돌아섰다(뒷모습)")
+        let mid = R.frame(at: (R.walkStart + R.walkEnd) / 2)
+        XCTAssertLessThan(mid.monY, -0.1, "위(지평선)로 멀어진다")
+        XCTAssertLessThan(mid.monScale, 0.8, "작아진다")
+        XCTAssertNotEqual(mid.monTilt, 0, "뒤뚱")
+        XCTAssertEqual(R.frame(at: R.walkEnd + 0.2).monOpacity, 0, accuracy: 1e-9, "다 멀어지면 사라진다")
+        XCTAssertLessThan(R.frame(at: R.eggDropStart + 0.1).eggY, -0.3, "새 알은 위에서 떨어진다")
+        let end = R.frame(at: R.duration)
+        XCTAssertEqual(end.eggOpacity, 1, accuracy: 1e-9); XCTAssertEqual(end.eggY, 0, accuracy: 1e-9)
+        XCTAssertEqual(end.eggSquashX, 1, accuracy: 1e-9)
+        XCTAssertGreaterThan(R.twinkleAt, R.walkEnd - 0.1, "반짝은 사라진 뒤")
+        XCTAssertLessThan(R.twinkleAt, R.eggDropStart, "알보다 먼저")
+    }
+
+    func testReduceMotionFadesInPlace() {
+        for t in stride(from: 0.0, through: R.reducedDuration, by: 0.05) {
+            let f = R.frame(at: t, reduceMotion: true)
+            XCTAssertEqual(f.monY, 0); XCTAssertEqual(f.monScale, 1); XCTAssertEqual(f.eggY, 0)
+            XCTAssertFalse(f.facingAway)
+        }
+        XCTAssertEqual(R.frame(at: R.reducedDuration, reduceMotion: true).eggOpacity, 1, accuracy: 1e-9)
+        XCTAssertEqual(R.frame(at: R.reducedDuration, reduceMotion: true).monOpacity, 0, accuracy: 1e-9)
+    }
+
+    /// 숨길 결과가 없다 — 정보 칸을 가리지 않고, 끝에서 꺼내며, 떠나는 모습은 늘 뒷모습이다.
+    func testPlaybackPlan() {
+        let release = CompanionStore.Celebration.release(speciesID: 25, shiny: true, form: nil)
+        XCTAssertNil(CelebrationPlayer.concealment([release]))
+        XCTAssertEqual(CelebrationPlayer.concealment([release, .hatch(shiny: false, rarity: .rare)]), .egg,
+                       "뒤에 부화가 있으면 그건 가린다")
+        let current = CelebrationPlayer.Sprite(speciesID: nil)
+        XCTAssertEqual(CelebrationPlayer.spriteBefore(release, current: current),
+                       CelebrationPlayer.Sprite(speciesID: 25, shiny: true), "재생 전엔 떠날 포켓몬이 칸에 있다")
+        let plan = CelebrationPlayer.plan(release, next: nil, current: current, reduceMotion: false)
+        typealias Sprite = CelebrationPlayer.Sprite
+        let expected = CelebrationPlayer.Kind.release(Sprite(speciesID: 25, shiny: true),
+                                                      away: Sprite(speciesID: 25, shiny: true, back: true),
+                                                      egg: Sprite(speciesID: nil))
+        XCTAssertEqual(plan.0, expected)
+        XCTAssertEqual(plan.consumeAt, R.duration); XCTAssertEqual(plan.duration, R.duration)
+    }
+
+    func testSoundsFollowTheSteps() {
+        let kind = CelebrationPlayer.Kind.release(.init(speciesID: 25), away: .init(speciesID: 25, back: true),
+                                                  egg: .init(speciesID: nil))
+        let cues = CelebrationSound.cues(for: kind, reduceMotion: false)
+        XCTAssertEqual(cues.filter { $0.sound == .chirp }.map(\.at), R.hopStarts, "깡충마다 삐요")
+        XCTAssertEqual(cues.filter { $0.sound == .step }.map(\.at), CelebrationSound.releaseSteps())
+        XCTAssertGreaterThanOrEqual(CelebrationSound.releaseSteps().count, 5)
+        XCTAssertTrue(cues.contains(.init(at: R.eggLand, sound: .plop)), "알이 닿을 때 콩")
+        XCTAssertEqual(cues.map(\.at), cues.map(\.at).sorted())
+        XCTAssertTrue(cues.allSatisfy { $0.at >= 0 && $0.at < R.duration })
+        XCTAssertFalse(CelebrationSound.samples(.chirp).isEmpty)
+    }
+}
+
+/// 상점에서 알을 사면 지금 포켓몬이 작별 인사를 한다 — **사용자가 마지막으로 본 모습**으로.
+@MainActor
+final class ReleaseQueueTests: XCTestCase {
+    private func store(shiny: Bool) -> CompanionStore {
+        let url = FileManager.default.temporaryDirectory.appendingPathComponent("release-\(UUID().uuidString).json")
+        addTeardownBlock { try? FileManager.default.removeItem(at: url) }
+        let mon = "{\"baseID\":10,\"pathIDs\":[10],\"stageIndex\":0,\"usedAtStage\":200000000,"
+            + "\"rarity\":\"common\",\"totalForms\":3,\"isShiny\":\(shiny)}"
+        let json = "{\"installBaselineSet\":true,\"usedSinceInstall\":20000000000,\"spentTokens\":0,"
+            + "\"lastDate\":\"d\",\"active\":\(mon),\"dex\":[],\"collectedFinals\":[]}"
+        try? json.data(using: .utf8)!.write(to: url)
+        return CompanionStore(provider: StubProvider(value: linear(1, count: 3)), clock: { now }, fileURL: url,
+                              rng: SeededRNG(seed: 7))
+    }
+
+    func testBuyingAnEggQueuesAFarewellWithTheShownLook() {
+        let s = store(shiny: true)
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertEqual(s.pendingCelebrations, [.release(speciesID: 10, shiny: true, form: nil)])
+        XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations), "새 알 정보는 그대로 보인다")
+    }
+
+    /// 앞서 놓아준 개체의 작별은 남는다. 아직 부화를 못 본(알로만 보인) 개체는 작별할 모습이 없어 연출도 없다.
+    func testAnUnseenHatchlingLeavesWithoutAFarewellAndEarlierFarewellsStay() async {
+        let s = store(shiny: false)
+        XCTAssertTrue(s.buyFreshEgg())
+        await s.hatch(baseID: 1)
+        XCTAssertEqual(s.pendingCelebrations.count, 2, "작별 → 부화")
+        XCTAssertTrue(s.buyFreshEgg())
+        XCTAssertEqual(s.pendingCelebrations, [.release(speciesID: 10, shiny: false, form: nil)],
+                       "못 본 부화는 버려지고, 앞 개체의 작별은 남는다")
+    }
+}

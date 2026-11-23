@@ -38,6 +38,9 @@ final class CompanionStore {
         case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?, fromName: String, rarity: Rarity)
         case dittoReveal(shiny: Bool, disguise: DittoDisguise)
         case graduate(speciesID: Int, shiny: Bool, form: PokemonForm?)
+        /// 상점에서 새 알을 사며 떠나보낸 개체(보이던 모습 그대로 — 위장 메타몽이면 위장체). 재생 시점의 상태는
+        /// 이미 새 알이라 여기 싣는다.
+        case release(speciesID: Int, shiny: Bool, form: PokemonForm?)
     }
     /// 리빌 직전까지 보이던 위장 모습(위장 중엔 이로치도 숨긴다 — 그래서 shiny 가 없다).
     struct DittoDisguise: Equatable {
@@ -1428,6 +1431,8 @@ final class CompanionStore {
     @discardableResult
     func buyEgg(_ tier: Rarity?) -> Bool {
         guard canBuyEgg(tier) else { return false }
+        // 놓아주기 전의 지금 모습 — 아래에서 작별 연출에 그릴 모습을 정할 때 쓴다(위장 메타몽이면 위장체).
+        let before = CelebrationPlayer.Sprite(speciesID: currentSpeciesID, shiny: currentIsShiny, form: currentForm)
         state.spentTokens += price(of: .egg(tier))
         if let a = state.active {
             state.dex.append(releasedDexEntry(from: a))   // 놓아줌 기록 — 도감에서 종이 사라지지 않게
@@ -1448,8 +1453,17 @@ final class CompanionStore {
         justGraduated = nil; justEvolvedTo = nil; eventUntil = nil
         // 놓아준 개체의 대기 연출(마지막 졸업 뒤의 부화·진화·리빌)만 버린다 — 남기면 새 알 위에서 놓아준
         // 개체의 부화가 재생된다. 그 앞(이전 개체들의 졸업까지)은 도감에 남은 일이라 그대로 재생한다.
-        let lastGraduation = pendingCelebrations.lastIndex { if case .graduate = $0 { true } else { false } }
-        pendingCelebrations.removeSubrange((lastGraduation.map { $0 + 1 } ?? 0)...)
+        // 앞서 놓아준 개체의 작별도 이미 끝난 일이라 남긴다(연달아 두 번 사면 둘 다 인사한다).
+        let lastGraduation = pendingCelebrations.lastIndex {
+            switch $0 { case .graduate, .release: true; default: false }
+        }
+        let trimFrom = lastGraduation.map { $0 + 1 } ?? 0
+        // 작별은 **사용자가 마지막으로 본 모습**으로 — 버리는 연출(못 본 진화·리빌)의 직전 모습이다. 부화를 아직
+        // 못 봐서 알로만 보였다면 작별할 모습이 없으니 연출도 없다(알이 걸어가 버리면 어색하고, 정체도 흘린다).
+        let seen = trimFrom < pendingCelebrations.count
+            ? CelebrationPlayer.spriteBefore(pendingCelebrations[trimFrom], current: before) : before
+        pendingCelebrations.removeSubrange(trimFrom...)
+        if let id = seen.speciesID { fireCelebration(.release(speciesID: id, shiny: seen.shiny, form: seen.form)) }
         celebrationStage.queueReplaced()
         AppLog.write("egg purchased: discarded active, tier=\(tier?.rawValue ?? "none")")
         Task { await self.ensureEggPrefetch() }   // 다음 부화 예열

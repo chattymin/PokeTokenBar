@@ -57,9 +57,10 @@ final class CelebrationRenderTests: XCTestCase {
     private struct Sprites {
         var egg: NSImage
         var mons: [Int: NSImage]
+        var backs: [Int: NSImage] = [:]
     }
 
-    private func sprites(_ ids: [Int]) async throws -> Sprites {
+    private func sprites(_ ids: [Int], backs backIDs: [Int] = []) async throws -> Sprites {
         let directory = FileManager.default.temporaryDirectory.appendingPathComponent("celebration-render-\(UUID())")
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
         addTeardownBlock { try? FileManager.default.removeItem(at: directory) }
@@ -79,7 +80,16 @@ final class CelebrationRenderTests: XCTestCase {
                 print("celebration-render #\(id): PLACEHOLDER (download failed)")
             }
         }
-        return Sprites(egg: egg, mons: mons)
+        var backs: [Int: NSImage] = [:]
+        for id in backIDs {
+            if let data = await store.data(speciesID: id, animated: false, back: true), let image = NSImage(data: data) {
+                backs[id] = image
+            } else {
+                backs[id] = placeholder("B\(id)", color: .systemTeal)
+                print("celebration-render back #\(id): PLACEHOLDER (download failed)")
+            }
+        }
+        return Sprites(egg: egg, mons: mons, backs: backs)
     }
 
     /// Same fit as `SpriteView.fitted`: aspect-preserving inside the slot, pixel art kept crisp.
@@ -223,6 +233,7 @@ final class CelebrationRenderTests: XCTestCase {
         case .evolve: EvolutionEffect.duration(reduceMotion: reduce)
         case .graduate: GraduationEffect.duration(reduceMotion: reduce)
         case .dittoReveal: DittoRevealEffect.duration(reduceMotion: reduce)
+        case .release: ReleaseEffect.duration(reduceMotion: reduce)
         }
     }
 
@@ -350,6 +361,31 @@ final class CelebrationRenderTests: XCTestCase {
                        scene: headerScene(kind, images: images, reduce: reduce))
             if !reduce {
                 try render(name: "floating-graduate", duration: duration, strip: times, into: dir,
+                           cell: petCell, gifScale: 1, scene: petScene(kind, images: images, reduce: false))
+            }
+        }
+    }
+}
+
+extension CelebrationRenderTests {
+    /// 상점에서 새 알을 사며 놓아줄 때의 작별(헤더·플로팅 펫).
+    func testWriteRelease() async throws {
+        let dir = try outputDirectory()
+        let id = 25
+        let s = try await sprites([id], backs: [id])
+        let front = Sprite(speciesID: id), away = Sprite(speciesID: id, back: true), egg = Sprite(speciesID: nil)
+        let kind = CelebrationPlayer.Kind.release(front, away: away, egg: egg)
+        let images = [front: try XCTUnwrap(s.mons[id]), away: try XCTUnwrap(s.backs[id]), egg: s.egg]
+        for reduce in [false, true] {
+            let duration = ReleaseEffect.duration(reduceMotion: reduce)
+            let times: [TimeInterval] = reduce ? [0, 0.3, 0.6, 0.9, duration]
+                : [0, 0.2, 0.55, 0.88, 0.95, 1.1, 1.4, 1.75, 2.1, 2.45, 2.7, 2.92, duration]
+            try render(name: "release\(reduce ? "-reduced" : "")", duration: duration, strip: times, into: dir,
+                       cell: Self.headerSceneSize.width, cellHeight: Self.headerSceneSize.height,
+                       background: Self.headerBackground, gifScale: 1.25,
+                       scene: headerScene(kind, images: images, reduce: reduce))
+            if !reduce {
+                try render(name: "floating-release", duration: duration, strip: times, into: dir,
                            cell: petCell, gifScale: 1, scene: petScene(kind, images: images, reduce: false))
             }
         }

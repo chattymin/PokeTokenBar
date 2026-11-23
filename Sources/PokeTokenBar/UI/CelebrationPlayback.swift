@@ -35,6 +35,8 @@ struct CelebrationPlayer: Equatable {
         case evolve(from: Sprite, to: Sprite)
         case graduate(Sprite, egg: Sprite)
         case dittoReveal(disguise: Sprite, ditto: Sprite)
+        /// 놓아주기 — 앞모습으로 인사하고 `away`(뒷모습)로 돌아서 떠난다. 빈자리에 새 알.
+        case release(Sprite, away: Sprite, egg: Sprite)
     }
 
     /// 정보 칸을 가리는 동안 그 자리에 보일 것 — 알 문구, 또는 공개 전 모습의 이름(과 등급).
@@ -122,7 +124,7 @@ struct CelebrationPlayer: Equatable {
             case .hatch: return .egg
             case .evolve(_, _, _, _, let fromName, let rarity): return .subject(name: fromName, rarity: rarity)
             case .dittoReveal(_, let disguise): return .subject(name: disguise.name, rarity: disguise.rarity)
-            case .graduate: continue
+            case .graduate, .release: continue   // 숨길 결과가 없다(졸업·직접 고른 놓아주기)
             }
         }
         return nil
@@ -146,6 +148,8 @@ struct CelebrationPlayer: Equatable {
             return Sprite(speciesID: id, shiny: shiny, form: form, back: current.back)
         case .dittoReveal(_, let disguise)?:
             return Sprite(speciesID: disguise.speciesID, shiny: false, form: disguise.form, back: current.back)
+        case .release(let id, let shiny, let form)?:
+            return Sprite(speciesID: id, shiny: shiny, form: form, back: current.back)
         case nil:
             return current
         }
@@ -169,6 +173,12 @@ struct CelebrationPlayer: Equatable {
         case .graduate(let id, let shiny, let form):
             let duration = GraduationEffect.duration(reduceMotion: reduceMotion)
             return (.graduate(Sprite(speciesID: id, shiny: shiny, form: form, back: current.back), egg: egg),
+                    duration, duration)
+        case .release(let id, let shiny, let form):
+            // 떠나는 뒷모습은 "항상 뒷모습" 설정과 상관없이 뒤 — 돌아서서 멀어지는 연출이다.
+            let duration = ReleaseEffect.duration(reduceMotion: reduceMotion)
+            return (.release(Sprite(speciesID: id, shiny: shiny, form: form, back: current.back),
+                             away: Sprite(speciesID: id, shiny: shiny, form: form, back: true), egg: egg),
                     duration, duration)
         case .dittoReveal(let shiny, let disguise):
             // 리빌 뒤 모습은 언제나 메타몽(단일 형태) — 지금 상태가 그 뒤 졸업해 알이어도 그대로 그린다.

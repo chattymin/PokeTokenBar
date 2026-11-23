@@ -35,6 +35,12 @@ enum CelebrationSound {
         case twinkle
         /// 메타몽 정체가 드러나는 "뾰잉".
         case boing
+        /// 작별 인사의 "삐요" — 깡충 뛸 때 짧게 올라갔다 내려오는 두 음.
+        case chirp
+        /// 멀어지는 발걸음 "톡톡"(작게).
+        case step
+        /// 새 알이 바닥에 닿는 "콩".
+        case plop
     }
 
     struct Cue: Equatable {
@@ -80,8 +86,23 @@ enum CelebrationSound {
             }
         case .dittoReveal:
             out.append(Cue(at: DittoRevealEffect.revealAt, sound: .boing))
+        case .release:
+            if reduceMotion {
+                out.append(Cue(at: 0.05, sound: .chirp))
+                out.append(Cue(at: 0.85, sound: .plop))
+            } else {
+                out += ReleaseEffect.hopStarts.map { Cue(at: $0, sound: .chirp) }
+                out += releaseSteps().map { Cue(at: $0, sound: .step) }
+                out.append(Cue(at: ReleaseEffect.twinkleAt, sound: .twinkle))
+                out.append(Cue(at: ReleaseEffect.eggLand, sound: .plop))
+            }
         }
         return out.sorted { $0.at < $1.at }
+    }
+
+    /// 멀어지는 발걸음 시각 — 그림의 걸음 박자(`ReleaseEffect.step`) 그대로.
+    static func releaseSteps() -> [TimeInterval] {
+        stride(from: ReleaseEffect.walkStart, to: ReleaseEffect.walkEnd - 0.1, by: ReleaseEffect.step).map { $0 }
     }
 
     /// 진화 실루엣이 옛↔새로 바뀌는 순간들(mix 가 0.5 를 지나는 시각) — 그림이 "탁" 바뀌는 때에 소리를 맞춘다.
@@ -165,6 +186,15 @@ enum CelebrationSound {
                        offset: Int(0.07 * sampleRate))
         case .boing:
             return tone(0.26, from: 620, to: 240, wave: .square(0.5), decay: 8, vibrato: 14, gain: 0.5)
+        case .chirp:
+            // 올라갔다 내려오는 두 음(삐-요) — 부드럽게 삼각파.
+            return add(tone(0.07, from: note(4), to: note(6), wave: .triangle, decay: 18, gain: 0.7),
+                       tone(0.11, from: note(5), to: note(3), wave: .triangle, decay: 16, gain: 0.6),
+                       offset: Int(0.07 * sampleRate))
+        case .step:
+            return tone(0.03, from: 520, to: 430, wave: .triangle, decay: 70, gain: 0.35)
+        case .plop:
+            return tone(0.09, from: 300, to: 520, wave: .triangle, decay: 30, gain: 0.8)
         }
     }
 

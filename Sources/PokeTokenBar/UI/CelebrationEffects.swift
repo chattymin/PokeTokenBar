@@ -939,6 +939,242 @@ struct GraduationEffectView<Pokemon: View, Egg: View>: View {
     }
 }
 
+// MARK: - 놓아주기 (상점에서 새 알을 사서 지금 포켓몬을 떠나보낼 때)
+
+/// 작별 인사 연출: 두 번 깡충 뛰며 하트를 띄우고, 돌아서서(뒷모습) 뒤뚱뒤뚱 멀어지며 작아져 사라진다.
+/// 사라진 자리에서 작게 반짝이고, 빈자리에 새 알이 위에서 톡 떨어진다.
+///
+/// 졸업(볼로 회수)과 일부러 다르게 짰다 — 놓아준 포켓몬은 잡히는 게 아니라 **스스로 떠난다**. 볼도 붉은 빛도
+/// 쓰지 않고, 색도 분홍 하트·흙먼지처럼 부드러운 쪽으로. 결과를 숨길 것이 없어(산 사람이 고른 일) 끝에서 꺼낸다.
+enum ReleaseEffect {
+    static let duration: TimeInterval = 3.3
+    static let reducedDuration: TimeInterval = 1.2
+    /// 깡충 두 번(시작 시각) — 같은 높이로 두 번, 두 번째가 살짝 낮다.
+    static let hopStarts: [TimeInterval] = [0.05, 0.4]
+    static let hopLength: TimeInterval = 0.3
+    /// 돌아서는 구간 — 가로로 납작해졌다 뒷모습으로 펴진다(가운데서 앞↔뒤를 바꾼다).
+    static let turnStart: TimeInterval = 0.82
+    static let turnLength: TimeInterval = 0.22
+    /// 멀어지는 구간.
+    static let walkStart: TimeInterval = 1.08
+    static let walkEnd: TimeInterval = 2.45
+    /// 다 멀어졌을 때의 자리(칸 단위, 위로 = 지평선 쪽)와 크기.
+    static let farY: Double = -0.3
+    static let farScale: Double = 0.26
+    /// 발걸음 주기(초) — 뒤뚱거림과 먼지가 같은 박자.
+    static let step: TimeInterval = 0.2
+    /// 사라진 자리의 반짝.
+    static let twinkleAt: TimeInterval = 2.42
+    /// 새 알이 떨어지기 시작해 바닥에 닿는 시각.
+    static let eggDropStart: TimeInterval = 2.6
+    static let eggLand: TimeInterval = 2.9
+    static let eggDropFrom: Double = -0.6   // 헤더 무대(1.5배) 위로 넘쳐 팝오버 위 가장자리에 잘리지 않을 높이
+
+    static func duration(reduceMotion: Bool) -> TimeInterval { reduceMotion ? reducedDuration : duration }
+
+    struct Frame: Equatable {
+        /// 칸 중심에서의 자리(칸 단위).
+        var monX: Double = 0
+        var monY: Double = 0
+        var monScale: Double = 1
+        /// 가로 배율(돌아설 때 납작해진다) · 착지 찌그러짐.
+        var monSquashX: Double = 1
+        var monSquashY: Double = 1
+        var monTilt: Double = 0
+        var monOpacity: Double = 1
+        /// 뒷모습으로 돌아섰나.
+        var facingAway = false
+        /// 하트 — 떠오른 정도 0…1(0 = 없음).
+        var heart: Double = 0
+        var eggOpacity: Double = 0
+        /// 알이 바닥에서 떠 있는 높이(칸 단위, 음수 = 위).
+        var eggY: Double = 0
+        var eggSquashX: Double = 1
+        var eggSquashY: Double = 1
+    }
+
+    /// 깡충 높이(칸 단위, 음수 = 위)와 착지 찌그러짐(0…1).
+    static func hop(at t: TimeInterval) -> (lift: Double, squash: Double) {
+        for (k, start) in hopStarts.enumerated() {
+            let u = (t - start) / hopLength
+            guard u >= 0, u <= 1.25 else { continue }
+            let height = k == 0 ? 0.11 : 0.08
+            if u <= 1 { return (-height * sin(.pi * u), u < 0.12 ? (0.12 - u) / 0.12 * 0.6 : 0) }
+            return (0, sin(.pi * (u - 1) / 0.25))   // 착지 — 잠깐 납작
+        }
+        return (0, 0)
+    }
+
+    /// 멀어진 정도 0…1 — 처음엔 천천히 출발해 일정하게 걷는다.
+    static func walk(at t: TimeInterval) -> Double {
+        let u = FX.clamp01((t - walkStart) / (walkEnd - walkStart))
+        return u < 0.15 ? u * u / 0.3 : (u - 0.075) / 0.925
+    }
+
+    static func frame(at t: TimeInterval, reduceMotion: Bool = false) -> Frame {
+        var f = Frame()
+        if reduceMotion {
+            f.heart = FX.smoothstep(0, 0.3, t) * (1 - FX.smoothstep(0.6, 0.8, t))
+            f.monOpacity = 1 - FX.smoothstep(0.3, 0.8, t)
+            f.eggOpacity = FX.smoothstep(0.8, 1.1, t)
+            return f
+        }
+        let h = hop(at: t)
+        f.monY = h.lift
+        f.monSquashX = 1 + 0.08 * h.squash
+        f.monSquashY = 1 - 0.1 * h.squash
+        // 첫 깡충과 함께 하트가 머리 위로 떠올라 돌아설 즈음 사라진다.
+        f.heart = t < hopStarts[0] ? 0 : FX.clamp01((t - hopStarts[0]) / 1.0)
+        // 돌아서기 — 가로로 납작해졌다 펴지며, 가운데서 뒷모습으로 바뀐다.
+        let turn = FX.clamp01((t - turnStart) / turnLength)
+        if t >= turnStart {
+            f.monSquashX *= max(0.08, abs(cos(.pi * turn)))
+            f.facingAway = turn >= 0.5
+        }
+        // 멀어지기 — 위(지평선)로 가며 작아지고, 걸음마다 좌우로 뒤뚱·살짝 통통 튄다.
+        let w = walk(at: t)
+        if t >= walkStart {
+            let phase = (t - walkStart) / step
+            let fade = 1 - FX.smoothstep(walkEnd - 0.2, walkEnd + 0.15, t)
+            f.monY = farY * w - 0.025 * abs(sin(.pi * phase)) * (1 - w)
+            f.monScale = 1 - (1 - farScale) * w
+            f.monTilt = 7 * sin(.pi * phase) * (1 - 0.5 * w)
+            f.monOpacity = fade
+        }
+        // 새 알 — 위에서 가속하며 떨어져 바닥에 닿고, 한 번 납작했다 작게 튄다.
+        if t >= eggDropStart {
+            f.eggOpacity = FX.smoothstep(eggDropStart, eggDropStart + 0.08, t)
+            if t < eggLand {
+                let u = (t - eggDropStart) / (eggLand - eggDropStart)
+                f.eggY = eggDropFrom * (1 - u * u)
+            } else {
+                let after = t - eggLand
+                f.eggY = after < 0.22 ? -0.05 * sin(.pi * after / 0.22) : 0
+                let squash = after < 0.1 ? sin(.pi * after / 0.1) : 0
+                f.eggSquashX = 1 + 0.12 * squash
+                f.eggSquashY = 1 - 0.14 * squash
+            }
+        }
+        return f
+    }
+}
+
+/// 놓아주기 연출 한 순간. `front`(앞모습)·`away`(뒷모습)·`egg` 는 호출자가 그린다.
+@MainActor
+struct ReleaseEffectView<Front: View, Away: View, Egg: View>: View {
+    let elapsed: TimeInterval
+    var size: CGFloat = 76
+    var reduceMotion = false
+    var layer: CelebrationLayer = .both
+    @ViewBuilder var front: Front
+    @ViewBuilder var away: Away
+    @ViewBuilder var egg: Egg
+
+    static var pink: Color { Color(red: 1, green: 0.42, blue: 0.6) }
+    static var dust: Color { Color(red: 0.72, green: 0.64, blue: 0.52) }
+
+    var body: some View {
+        let f = ReleaseEffect.frame(at: elapsed, reduceMotion: reduceMotion)
+        Layered(layer: layer, size: size) { sprite(f) } light: { light(f) }
+    }
+
+    @ViewBuilder
+    private func sprite(_ f: ReleaseEffect.Frame) -> some View {
+        ZStack {
+            egg
+                .scaleEffect(x: f.eggSquashX, y: f.eggSquashY, anchor: UnitPoint(x: 0.5, y: 0.92))
+                .offset(y: size * f.eggY)
+                .opacity(f.eggOpacity)
+            Group {
+                if f.facingAway { away } else { front }
+            }
+            .scaleEffect(x: f.monSquashX, y: f.monSquashY, anchor: UnitPoint(x: 0.5, y: 0.9))
+            .rotationEffect(.degrees(f.monTilt), anchor: UnitPoint(x: 0.5, y: 0.9))
+            .scaleEffect(f.monScale, anchor: UnitPoint(x: 0.5, y: 0.9))
+            .offset(x: size * f.monX, y: size * f.monY)
+            .opacity(f.monOpacity)
+        }
+    }
+
+    /// 빛 층 — 하트, 걸음마다 이는 흙먼지, 사라진 자리의 반짝, 떨어지는 알의 그림자.
+    private func light(_ f: ReleaseEffect.Frame) -> some View {
+        let t = elapsed
+        let reduce = reduceMotion
+        return PixelCanvas(box: size) { g in
+            let pink = Self.pink
+            if f.heart > 0, f.heart < 1 {
+                // 머리 위로 흔들리며 떠오르는 도트 하트 — 다 오르면 작아지며 사라진다(옅어지지 않고).
+                let rise = FX.easeOutCubic(f.heart)
+                let hx = 0.16 + 0.03 * sin(f.heart * 9)
+                let hy = -0.3 - 0.22 * rise
+                let s = 0.075 * (f.heart < 0.75 ? 1 : 1 - (f.heart - 0.75) / 0.25)
+                ReleaseEffect.heart(&g, x: hx, y: hy, size: s, color: pink)
+                if !reduce, f.heart < 0.4 {
+                    g.sparkle(x: hx + 0.1, y: hy - 0.05, size: 0.07, color: pink, opacity: 1 - f.heart / 0.4)
+                }
+            }
+            guard !reduce else { return }
+            // 착지마다 발밑에 작은 흙먼지, 걷는 동안엔 걸음마다 — 멀어질수록 작게.
+            let feet = 0.33
+            for start in ReleaseEffect.hopStarts {
+                let land = start + ReleaseEffect.hopLength
+                ReleaseEffect.puffs(&g, at: t - land, x: 0, y: feet, scale: 1, color: Self.dust)
+            }
+            if t >= ReleaseEffect.walkStart, t < ReleaseEffect.walkEnd {
+                let n = Int((t - ReleaseEffect.walkStart) / ReleaseEffect.step)
+                for k in max(0, n - 2)...n {
+                    let at = ReleaseEffect.walkStart + Double(k) * ReleaseEffect.step
+                    let w = ReleaseEffect.walk(at: at)
+                    let side: Double = k % 2 == 0 ? -1 : 1
+                    let scale = 1 - (1 - ReleaseEffect.farScale) * w
+                    ReleaseEffect.puffs(&g, at: t - at, x: 0.08 * side * scale,
+                                        y: ReleaseEffect.farY * w + feet * scale, scale: 0.6 * scale, color: Self.dust)
+                }
+            }
+            // 사라진 자리 — 작은 반짝 하나(작별).
+            let tw = t - ReleaseEffect.twinkleAt
+            if tw >= 0, tw < 0.4 {
+                let u = tw / 0.4
+                let y = ReleaseEffect.farY + 0.05
+                g.sparkle(x: 0, y: y, size: 0.16 * sin(.pi * u) + 0.02, color: pink, opacity: 1 - u * 0.5)
+            }
+            // 떨어지는 알의 그림자 — 가까워질수록 커진다.
+            if f.eggOpacity > 0 {
+                let near = 1 - min(1, -f.eggY / 0.9)
+                g.ellipse(x: 0, y: 0.4, rx: 0.08 + 0.12 * near, ry: (0.08 + 0.12 * near) * 0.25,
+                          color: Color(white: 0.15), alpha: 0.25 + 0.3 * near)
+            }
+        }
+    }
+}
+
+extension ReleaseEffect {
+    /// 도트 하트 — 진한 테두리 + 분홍 속 + 흰 반사점.
+    static func heart(_ g: inout PixelGrid, x: Double, y: Double, size s: Double, color: Color) {
+        guard s > 0.01 else { return }
+        func shape(_ r: Double, _ c: Color) {
+            g.ellipse(x: x - r * 0.5, y: y - r * 0.15, rx: r * 0.58, ry: r * 0.55, color: c)
+            g.ellipse(x: x + r * 0.5, y: y - r * 0.15, rx: r * 0.58, ry: r * 0.55, color: c)
+            g.polygon([(x - r * 1.07, y), (x + r * 1.07, y), (x, y + r * 1.1)], color: c)
+        }
+        shape(s + g.cellLength, Color(red: 0.7, green: 0.12, blue: 0.3))
+        shape(s, color)
+        g.ellipse(x: x - s * 0.5, y: y - s * 0.3, rx: g.cellLength * 0.9, ry: g.cellLength * 0.9, color: .white)
+    }
+
+    /// 발밑 흙먼지 — 양옆으로 퍼지며 작아지는 동그라미 둘(0.35초).
+    static func puffs(_ g: inout PixelGrid, at t: Double, x: Double, y: Double, scale: Double, color: Color) {
+        guard t >= 0, t < 0.35 else { return }
+        let u = t / 0.35
+        for side in [-1.0, 1.0] {
+            let r = 0.045 * scale * (1 - u)
+            guard r > g.cellLength * 0.4 else { continue }
+            g.ellipse(x: x + side * (0.05 + 0.1 * FX.easeOutCubic(u)) * scale, y: y - 0.03 * u * scale,
+                      rx: r, ry: r * 0.8, color: color)
+        }
+    }
+}
+
 // MARK: - 메타몽 리빌
 
 /// 위장체 → 메타몽 교체를 섬광이 덮고 작은 폭발과 함께 튀어나온다.
@@ -1074,6 +1310,10 @@ struct CelebrationSequenceView: View {
         case .dittoReveal(let disguise, let ditto):
             DittoRevealEffectView(elapsed: elapsed, size: size, reduceMotion: reduceMotion, shiny: ditto.shiny,
                                   layer: layer) { view(disguise) } ditto: { view(ditto) }
+        case .release(let front, let away, let egg):
+            ReleaseEffectView(elapsed: elapsed, size: size, reduceMotion: reduceMotion, layer: layer) {
+                view(front)
+            } away: { view(away) } egg: { view(egg) }
         }
     }
 }
@@ -1086,6 +1326,7 @@ extension CelebrationPlayer.Kind {
         case .evolve(let from, let to): [from, to]
         case .graduate(let mon, let egg): [mon, egg]
         case .dittoReveal(let disguise, let ditto): [disguise, ditto]
+        case .release(let front, let away, let egg): [front, away, egg]
         }
     }
 }
