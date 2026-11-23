@@ -662,14 +662,22 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
             return
         }
         let petSize = CGFloat(store.floatingPetSize)
-        let e = effectPanel ?? makeEffectPanel()
+        let e = effectPanel ?? Self.makeEffectPanel()
         effectPanel = e
-        if e.contentView == nil {
+        // `contentView == nil` 로 판정하면 안 된다 — 새로 만든 NSPanel 은 빈 기본 contentView 를 이미 갖고 있어서,
+        // 앱을 켠 뒤 **첫 연출**에는 빛 층 뷰가 아예 안 붙었다(창은 떠 있는데 볼·빛·반짝임이 없다 — 실화면 실측).
+        // 끝날 때 nil 로 비우므로 두 번째부터는 붙어서 정상으로 보였다.
+        if !Self.hostsEffectOverlay(e.contentView) {
             e.contentView = NSHostingView(rootView: CelebrationEffectOverlay(stage: companion.celebrationStage,
                                                                              size: petSize))
         }
         e.setFrame(Self.effectFrame(petPanelFrame: pet.frame, petSize: petSize), display: true)
         e.order(.above, relativeTo: pet.windowNumber)
+    }
+
+    /// 빛 층 창에 연출 뷰가 붙어 있나. 테스트용으로 따로 둔다.
+    static func hostsEffectOverlay(_ view: NSView?) -> Bool {
+        view is NSHostingView<CelebrationEffectOverlay>
     }
 
     /// 빛 층 창의 자리 — 펫 스프라이트 칸(펫 창 아래쪽 가운데) 중심에 overflow 배. 순수·테스트용.
@@ -679,7 +687,7 @@ final class FloatingPetController: NSObject, NSWindowDelegate {
         return NSRect(x: center.x - side / 2, y: center.y - side / 2, width: side, height: side)
     }
 
-    private func makeEffectPanel() -> NSPanel {
+    static func makeEffectPanel() -> NSPanel {
         let p = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel],
                         backing: .buffered, defer: false)
         p.isOpaque = false

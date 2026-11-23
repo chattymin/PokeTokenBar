@@ -252,6 +252,16 @@ final class CelebrationParticleTests: XCTestCase {
         XCTAssertEqual(frame.midX, pet.midX, accuracy: 1e-9)
         XCTAssertEqual(frame.midY, 200 + 64, accuracy: 1e-9, "스프라이트 칸 중심(창 아래쪽)")
     }
+
+    /// 새로 만든 빛 층 창에도 연출 뷰를 붙여야 한다. AppKit 이 새 창에 빈 기본 contentView 를 주므로
+    /// "contentView 가 비었나"로 판정하면 앱을 켠 뒤 첫 연출의 빛 층이 통째로 빠진다(실측 회귀).
+    @MainActor
+    func testFreshEffectPanelStillGetsTheOverlay() {
+        let panel = FloatingPetController.makeEffectPanel()
+        XCTAssertNotNil(panel.contentView, "AppKit 은 새 창에 기본 contentView 를 준다 — nil 판정이 틀린 이유")
+        XCTAssertFalse(FloatingPetController.hostsEffectOverlay(panel.contentView), "그러니 붙여야 할 대상으로 봐야 한다")
+        XCTAssertFalse(FloatingPetController.hostsEffectOverlay(nil))
+    }
 }
 
 // MARK: 큐·페이로드(스토어)
