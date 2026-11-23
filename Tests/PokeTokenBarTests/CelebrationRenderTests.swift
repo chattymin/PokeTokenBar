@@ -102,10 +102,11 @@ final class CelebrationRenderTests: XCTestCase {
 
     /// `ImageRenderer`, not `cacheDisplay`: the latter drops layer filters (`brightness`, `colorMultiply`),
     /// so the white evolution silhouette and the red Poké Ball tint would silently vanish from the frames.
-    private func snapshot(_ view: some View, width: CGFloat, height: CGFloat) throws -> CGImage {
+    private func snapshot(_ view: some View, width: CGFloat, height: CGFloat,
+                          scale: CGFloat = CelebrationRenderTests.scale) throws -> CGImage {
         let renderer = ImageRenderer(content: view.frame(width: width, height: height)
             .environment(\.colorScheme, .light))
-        renderer.scale = Self.scale
+        renderer.scale = scale
         return try XCTUnwrap(renderer.cgImage)
     }
 
@@ -127,13 +128,19 @@ final class CelebrationRenderTests: XCTestCase {
     }
 
     /// One labelled strip of frames (PNG) plus a GIF of the whole sequence.
+    /// GIF 는 15fps·2x — PR 본문에 넣을 크기(≤ ~600KB)로. 프레임 띠 PNG 는 3x 그대로.
+    /// `chromed: false` 는 칸 테두리를 프레임 쪽에서 그린다(main 의 연출은 칸째로 커졌다).
     private func render(name: String, duration: TimeInterval, strip times: [TimeInterval], into dir: URL,
+                        gifStart: TimeInterval = 0, chromed: Bool = true,
                         frame: @escaping (TimeInterval) -> AnyView) throws {
+        let box: (TimeInterval) -> AnyView = { t in
+            chromed ? AnyView(self.chrome(frame(t))) : AnyView(frame(t).frame(width: Self.box, height: Self.box))
+        }
         let cell = Self.box + Self.pad * 2
         let stripView = HStack(spacing: 0) {
             ForEach(Array(times.enumerated()), id: \.offset) { _, t in
                 VStack(spacing: 2) {
-                    self.chrome(frame(t))
+                    box(t)
                     Text(String(format: "%.2fs", t)).font(.system(size: 9, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
@@ -144,11 +151,11 @@ final class CelebrationRenderTests: XCTestCase {
         try writePNG(try snapshot(stripView, width: cell * CGFloat(times.count), height: cell + 14),
                      to: dir.appendingPathComponent("\(name).png"))
 
-        let step = 1.0 / 20
+        let step = 1.0 / 15
         var frames: [CGImage] = []
-        for t in stride(from: 0.0, through: duration + 0.3, by: step) {
-            frames.append(try snapshot(chrome(frame(t)).frame(width: cell, height: cell).background(Color.white),
-                                       width: cell, height: cell))
+        for t in stride(from: gifStart, through: duration + 0.3, by: step) {
+            frames.append(try snapshot(box(t).frame(width: cell, height: cell).background(Color.white),
+                                       width: cell, height: cell, scale: 2))
         }
         try writeGIF(frames, delay: step, to: dir.appendingPathComponent("\(name).gif"))
     }
@@ -209,6 +216,33 @@ final class CelebrationRenderTests: XCTestCase {
         }
     }
 
+    /// **Illustration of main's behavior (38e3e55), not production code** — for the PR's "before" images.
+    /// main's `playCelebrationIfNeeded` was driven by `withAnimation`, not a function of time, so this
+    /// re-creates it from its parameters: at the update (t = 0) the sprite box already shows the result,
+    /// a white flash 0.85 → 0 (easeOut 0.8s) covers it and the whole box springs 0.6 → 1 (response 0.5,
+    /// damping 0.55). Hatch and evolve used exactly that; graduation had no effect (the egg just replaced
+    /// the Pokémon). Negative times are the moment before the update.
+    func testWriteMainBehaviorIllustrations() async throws {
+        let dir = try outputDirectory()
+        let s = try await sprites([150, 4, 5, 6])
+        let mewtwo = try XCTUnwrap(s.mons[150]), charmander = try XCTUnwrap(s.mons[4])
+        let charmeleon = try XCTUnwrap(s.mons[5]), charizard = try XCTUnwrap(s.mons[6])
+        let times: [TimeInterval] = [-0.1, 0, 0.1, 0.2, 0.35, 0.5, 0.8]
+        let cases: [(String, NSImage, NSImage, Bool)] = [
+            ("before-hatch-illustration", s.egg, mewtwo, true),
+            ("before-evolve-illustration", charmander, charmeleon, true),
+            ("before-graduate-illustration", charizard, s.egg, false),
+        ]
+        for (name, before, after, animated) in cases {
+            try render(name: name, duration: 1.0, strip: animated ? times : [-0.1, 0, 0.5], into: dir,
+                       gifStart: -0.6, chromed: false) { t in
+                AnyView(MainCelebrationIllustration(elapsed: t, animated: animated, box: Self.box) {
+                    self.fitted(before)
+                } after: { self.fitted(after) })
+            }
+        }
+    }
+
     func testWriteGraduation() async throws {
         let dir = try outputDirectory()
         let s = try await sprites([6])
@@ -221,5 +255,52 @@ final class CelebrationRenderTests: XCTestCase {
                 AnyView(GraduationEffectView(elapsed: t, reduceMotion: reduce) { self.fitted(mon) } egg: { self.fitted(s.egg) })
             }
         }
+    }
+}
+
+/// main(38e3e55)의 연출을 파라미터로 다시 그린 **설명용 그림**(제품 코드 아님). main 은 칸 전체에
+/// `.scaleEffect(celebScale)` 를 걸고 그 위에 칸 크기 흰 플래시를 얹었다 — 그래서 칸 테두리까지 같이 커진다.
+private struct MainCelebrationIllustration<Before: View, After: View>: View {
+    let elapsed: TimeInterval
+    let animated: Bool
+    let box: CGFloat
+    @ViewBuilder var before: Before
+    @ViewBuilder var after: After
+
+    /// SwiftUI `.spring(response: 0.5, dampingFraction: 0.55)` 의 감쇠 진동(0.6 → 1).
+    static func springScale(_ t: Double) -> Double {
+        let omega = 2 * Double.pi / 0.5, zeta = 0.55
+        let damped = omega * (1 - zeta * zeta).squareRoot()
+        return 1 - 0.4 * exp(-zeta * omega * t) * (cos(damped * t) + zeta * omega / damped * sin(damped * t))
+    }
+
+    /// `.easeOut` = cubic-bezier(0, 0, 0.58, 1) 의 진행률.
+    static func easeOut(_ x: Double) -> Double {
+        let x = min(1, max(0, x))
+        var lo = 0.0, hi = 1.0
+        for _ in 0..<40 {
+            let u = (lo + hi) / 2
+            let bx = 3 * (1 - u) * u * u * 0.58 + u * u * u
+            if bx < x { lo = u } else { hi = u }
+        }
+        let u = (lo + hi) / 2
+        return 3 * (1 - u) * u * u + u * u * u
+    }
+
+    var body: some View {
+        let shown = elapsed >= 0
+        let scale = animated && shown ? Self.springScale(elapsed) : 1
+        let flash = animated && shown ? 0.85 * (1 - Self.easeOut(elapsed / 0.8)) : 0
+        ZStack {
+            ZStack {
+                if shown { after } else { before }
+            }
+            .frame(width: box, height: box)
+            .background(Color.secondary.opacity(0.06))
+            .clipShape(RoundedRectangle(cornerRadius: 12))
+            .scaleEffect(scale)
+            RoundedRectangle(cornerRadius: 12).fill(Color.white).opacity(flash)
+        }
+        .frame(width: box, height: box)
     }
 }
