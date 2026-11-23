@@ -123,8 +123,11 @@ enum HatchEffect {
     static func wobbleStarts(_ p: Profile) -> [TimeInterval] {
         let window = max(0, p.revealAt - buildUp - lead - wobbleLength - p.pauseBeforeLast)
         let spacing = p.wobbles > 1 ? window / Double(p.wobbles - 1) : 0
-        return (0..<p.wobbles).map { i in
-            lead + Double(i) * spacing + (i == p.wobbles - 1 && i > 0 ? p.pauseBeforeLast : 0)
+        // 타입을 못 박아 두면 CI 의 Swift 6.1(Xcode 16.4) 타입 검사기가 시간 초과로 포기한다(실측).
+        return (0..<p.wobbles).map { (i: Int) -> TimeInterval in
+            let base: TimeInterval = lead + Double(i) * spacing
+            let pause: TimeInterval = (i == p.wobbles - 1 && i > 0) ? p.pauseBeforeLast : 0
+            return base + pause
         }
     }
 
@@ -843,7 +846,7 @@ struct GraduationEffectView<Pokemon: View, Egg: View>: View {
                 // 빛을 맞고(밝기) → 붉은 빛 실루엣(밝힌 뒤 빨강을 곱한다) + 또렷한 붉은 윤곽.
                 .brightness(max(f.monWhite, 0.5 * f.monRed))
                 .colorMultiply(Color(red: 1, green: 1 - 0.75 * f.monRed, blue: 1 - 0.75 * f.monRed))
-                .celebrationRim(Self.red, width: 1.6 * size / 76 * f.monRed)
+                .celebrationRim(Self.red, width: CGFloat(1.6 * f.monRed) * size / 76)   // CGFloat·Double 섞으면 Swift 6.1 이 모호하다고 거부
                 .scaleEffect(f.monScale)
                 .offset(x: size * pos.x, y: size * pos.y)
                 .opacity(f.monOpacity)
