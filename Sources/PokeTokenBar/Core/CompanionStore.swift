@@ -1096,7 +1096,8 @@ final class CompanionStore {
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)
-                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(from: oldName, to: newName))
+                notifyCompanionEvent(l.notifEvolveTitle, l.notifEvolveBody(from: oldName, to: newName),
+                                     teaser: (l.notifEvolveTeaserTitle, l.notifEvolveTeaserBody(oldName)))
             }
         }
         reconcileActiveProfileGrowth()
@@ -1594,7 +1595,11 @@ final class CompanionStore {
     private(set) var latestEvent: CompanionEvent?
     private var eventSeq = 0
 
-    private func notifyCompanionEvent(_ title: String, _ body: String, showsOnPet: Bool = true) {
+    /// `teaser` — 연출이 공개할 결과(부화한 포켓몬·진화한 모습·메타몽·이로치)를 시스템 알림이 먼저 말하지 않게
+    /// 대신 보낼 문구. 이벤트는 알이 깨지기 **전에** 오므로 그대로 보내면 연출이 맞히게 하려던 것을 알림이 스포한다
+    /// (사용자 실사용 피드백). 펫 말풍선(`latestEvent`)은 진짜 문구를 갖고 공개 순간까지 기다린다.
+    private func notifyCompanionEvent(_ title: String, _ body: String, showsOnPet: Bool = true,
+                                      teaser: (title: String, body: String)? = nil) {
         if showsOnPet {
             eventSeq += 1
             latestEvent = CompanionEvent(seq: eventSeq, text: body, at: clock())
@@ -1603,8 +1608,8 @@ final class CompanionStore {
         guard UserDefaults.standard.object(forKey: "companionNotifications") as? Bool ?? true else { return }
         notifSeq += 1
         let content = UNMutableNotificationContent()
-        content.title = title
-        content.body = body
+        content.title = teaser?.title ?? title
+        content.body = teaser?.body ?? body
         content.sound = .default
         UNUserNotificationCenter.current().add(
             UNNotificationRequest(identifier: "companion-event-\(notifSeq)", content: content, trigger: nil))
@@ -1866,7 +1871,8 @@ final class CompanionStore {
         } else {
             hatchBody = showShiny ? l.notifShinyHatchBody(name, odds: shinyOdds) : l.notifHatchBody(name)
         }
-        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody)
+        notifyCompanionEvent(showShiny ? l.notifShinyHatchTitle : l.notifHatchTitle, hatchBody,
+                             teaser: (l.notifHatchTeaserTitle, l.notifHatchTeaserBody))
         justEvolvedTo = nil        // 새 부화는 "성장" 문구(진화 아님) — 직전 진화명이 남아 표시되지 않게
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(4)
@@ -1935,7 +1941,8 @@ final class CompanionStore {
         displayState = .levelUp
         eventUntil = clock().addingTimeInterval(5)
         notifyCompanionEvent(shiny ? l.notifShinyDittoRevealTitle : l.notifDittoRevealTitle,
-                             shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName))
+                             shiny ? l.notifShinyDittoRevealBody(disguiseName) : l.notifDittoRevealBody(disguiseName),
+                             teaser: (l.notifDittoTeaserTitle, l.notifDittoTeaserBody(disguiseName)))
         save()
         applyUsage(0)   // 이월분으로 메타몽 졸업 재평가(rare 3B라 보통 즉시 졸업 아님)
         isRevealingDitto = false   // Details are enrichment, not part of the reveal transaction.
