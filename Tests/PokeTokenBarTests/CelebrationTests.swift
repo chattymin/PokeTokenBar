@@ -252,15 +252,15 @@ final class CelebrationQueueTests: XCTestCase {
         s.applyUsage(10_000_000_000)
         XCTAssertNil(s.state.active)
         XCTAssertEqual(s.pendingCelebrations, [
-            .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil, fromName: "P1"),
-            .evolve(fromID: 2, toID: 3, shiny: shiny, form: nil, fromName: "P2"),
+            .evolve(fromID: 1, toID: 2, shiny: shiny, form: nil, fromName: "P1", rarity: .common),
+            .evolve(fromID: 2, toID: 3, shiny: shiny, form: nil, fromName: "P2", rarity: .common),
             .graduate(speciesID: 3, shiny: shiny, form: nil),
         ])
         // 졸업으로 라인이 비었어도 옛 단계 이름은 페이로드에 있어 정보 칸이 비지 않는다.
         XCTAssertNil(s.currentLine)
-        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P1", rarity: nil))
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P1", rarity: .common))
         s.consumeCelebration()
-        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P2", rarity: nil))
+        XCTAssertEqual(CelebrationPlayer.concealment(s.pendingCelebrations), .subject(name: "P2", rarity: .common))
         s.consumeCelebration()
         XCTAssertNil(CelebrationPlayer.concealment(s.pendingCelebrations), "졸업은 가리지 않는다")
     }
@@ -287,7 +287,7 @@ final class CelebrationQueueTests: XCTestCase {
         XCTAssertEqual(s.pendingCelebrations.count, CompanionStore.celebrationQueueCap)
         XCTAssertEqual(s.pendingCelebrations.last, .graduate(speciesID: 9, shiny: s.state.dex[0].isShiny, form: nil))
         XCTAssertEqual(s.pendingCelebrations.first,
-                       .evolve(fromID: 4, toID: 5, shiny: s.state.dex[0].isShiny, form: nil, fromName: "P4"))
+                       .evolve(fromID: 4, toID: 5, shiny: s.state.dex[0].isShiny, form: nil, fromName: "P4", rarity: .common))
         XCTAssertGreaterThanOrEqual(CompanionStore.celebrationQueueCap, 3, "진화 2회 + 졸업이 한 번에 들어가야 한다")
     }
 
@@ -446,7 +446,7 @@ final class CelebrationPlayerTests: XCTestCase {
 
     /// 재생 중 큐가 바뀌었으면(세이브 불러오기 등) 남의 연출을 꺼내지 않는다.
     func testDoesNotConsumeACelebrationItDidNotPlay() {
-        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: false, form: nil, fromName: "A")])
+        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: false, form: nil, fromName: "A", rarity: .common)])
         var player = CelebrationPlayer()
         player.startIfIdle(queue: queue, current: Sprite(speciesID: 2), reduceMotion: false, now: now)
         queue.pendingCelebrations = [.hatch(shiny: false, rarity: .common)]
@@ -457,7 +457,7 @@ final class CelebrationPlayerTests: XCTestCase {
 
     /// "항상 뒷모습" 이면 연출 속 스프라이트도 뒷모습(알 제외 — 알은 뒷모습이 없어 SpriteView 가 무시한다).
     func testSpritesKeepTheBackFacingPreference() {
-        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: true, form: nil, fromName: "A")])
+        let queue = FakeQueue([.evolve(fromID: 1, toID: 2, shiny: true, form: nil, fromName: "A", rarity: .common)])
         var player = CelebrationPlayer()
         player.startIfIdle(queue: queue, current: Sprite(speciesID: 2, shiny: true, back: true),
                            reduceMotion: true, now: now)
@@ -488,7 +488,7 @@ final class CelebrationSpriteBeforeTests: XCTestCase {
         XCTAssertEqual(CelebrationPlayer.spriteBefore(.hatch(shiny: true, rarity: .rare), current: current),
                        Sprite(speciesID: nil, back: true), "부화 전엔 알")
         XCTAssertEqual(CelebrationPlayer.spriteBefore(
-                           .evolve(fromID: 1, toID: 2, shiny: true, form: PokemonForm("sandy"), fromName: "A"),
+                           .evolve(fromID: 1, toID: 2, shiny: true, form: PokemonForm("sandy"), fromName: "A", rarity: .common),
                            current: current),
                        Sprite(speciesID: 1, shiny: true, form: PokemonForm("sandy"), back: true), "진화 전엔 옛 모습")
         XCTAssertEqual(CelebrationPlayer.spriteBefore(.graduate(speciesID: 9, shiny: false, form: nil), current: current),

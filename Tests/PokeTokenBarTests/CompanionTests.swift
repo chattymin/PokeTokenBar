@@ -1730,7 +1730,7 @@ final class CompanionIdentityTests: XCTestCase {
         s.applyUsage(thr)
         XCTAssertEqual(s.celebrationSeq, 2)
         // 진화 연출은 전·후 종을 싣는다(재생 시점엔 이미 다음 단계라 옛 모습을 못 읽는다).
-        guard case .evolve(1, 2, s.currentIsShiny, nil, _) = s.celebration else {
+        guard case .evolve(1, 2, s.currentIsShiny, nil, _, _) = s.celebration else {
             return XCTFail("1→2 진화 연출이어야 함: \(String(describing: s.celebration))")
         }
     }

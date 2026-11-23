@@ -113,7 +113,7 @@ struct CelebrationPlayer: Equatable {
         for c in pending {
             switch c {
             case .hatch: return .egg
-            case .evolve(_, _, _, _, let fromName): return .subject(name: fromName, rarity: nil)
+            case .evolve(_, _, _, _, let fromName, let rarity): return .subject(name: fromName, rarity: rarity)
             case .dittoReveal(_, let disguise): return .subject(name: disguise.name, rarity: disguise.rarity)
             case .graduate: continue
             }
@@ -133,7 +133,7 @@ struct CelebrationPlayer: Equatable {
         switch c {
         case .hatch?:
             return Sprite(speciesID: nil, back: current.back)
-        case .evolve(let from, _, let shiny, let form, _)?:
+        case .evolve(let from, _, let shiny, let form, _, _)?:
             return Sprite(speciesID: from, shiny: shiny, form: form, back: current.back)
         case .graduate(let id, let shiny, let form)?:
             return Sprite(speciesID: id, shiny: shiny, form: form, back: current.back)
@@ -154,7 +154,7 @@ struct CelebrationPlayer: Equatable {
             return (.hatch(profile, egg: egg, reveal: spriteBefore(next, current: current)),
                     HatchEffect.revealTime(profile, reduceMotion: reduceMotion),
                     HatchEffect.duration(profile, reduceMotion: reduceMotion))
-        case .evolve(let fromID, let toID, let shiny, let form, _):
+        case .evolve(let fromID, let toID, let shiny, let form, _, _):
             return (.evolve(from: Sprite(speciesID: fromID, shiny: shiny, form: form, back: current.back),
                             to: Sprite(speciesID: toID, shiny: shiny, form: form, back: current.back)),
                     EvolutionEffect.revealTime(reduceMotion: reduceMotion),

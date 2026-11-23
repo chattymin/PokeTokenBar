@@ -35,7 +35,7 @@ final class CompanionStore {
     /// `form` 은 개체의 형태 그대로다 — 종마다 `PokemonForm.resolved` 로 풀리는 건 SpriteView 가 한다.
     enum Celebration: Equatable {
         case hatch(shiny: Bool, rarity: Rarity)
-        case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?, fromName: String)
+        case evolve(fromID: Int, toID: Int, shiny: Bool, form: PokemonForm?, fromName: String, rarity: Rarity)
         case dittoReveal(shiny: Bool, disguise: DittoDisguise)
         case graduate(speciesID: Int, shiny: Bool, form: PokemonForm?)
     }
@@ -1089,7 +1089,7 @@ final class CompanionStore {
                                               speciesID: next.speciesID, form: a.form)
                 justEvolvedTo = newName
                 fireCelebration(.evolve(fromID: a.currentID, toID: next.speciesID,
-                                        shiny: a.displaysShiny, form: a.form, fromName: oldName))
+                                        shiny: a.displaysShiny, form: a.form, fromName: oldName, rarity: a.rarity))
                 // 짧은 levelUp 창 — 진화 순간 "…(으)로 진화했어요" 문구 노출(hatch/graduate 와 동일 패턴).
                 // 이게 없으면 computeState 가 .levelUp 을 안 내 statusEvolved 가 도달 불가(dead code)였다.
                 eventUntil = clock().addingTimeInterval(4)

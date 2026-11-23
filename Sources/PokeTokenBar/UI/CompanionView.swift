@@ -748,6 +748,8 @@ struct CompanionHeader: View {
                     // 공개 전엔 링크를 끈다. target 을 nil 로 바꾸면 DexEntryLink 가 Button↔content 로 갈려
                     // 공개 순간 칸의 구조적 정체성이 바뀌고 안의 스프라이트가 다시 마운트된다 → 분기 없이 막는다.
                     .allowsHitTesting(concealment == nil)
+                    // allowsHitTesting 은 포인터만 막는다 — 키보드(Tab·Space)·VoiceOver 로도 공개 전 도감을 못 열게 같이 끈다.
+                    .disabled(concealment != nil)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(store.displayName).font(.callout.weight(.semibold))
