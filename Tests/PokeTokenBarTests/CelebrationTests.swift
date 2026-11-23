@@ -1,3 +1,4 @@
+import SwiftUI
 import AppKit
 import XCTest
 @testable import PokeTokenBar
@@ -697,5 +698,93 @@ final class CelebrationSpriteBeforeTests: XCTestCase {
         XCTAssertEqual(CelebrationPlayer.spriteBefore(.dittoReveal(shiny: true, disguise: disguise), current: current),
                        Sprite(speciesID: 412, shiny: false, form: PokemonForm("sandy"), back: true),
                        "리빌 전엔 위장체(이로치 숨김)")
+    }
+}
+
+// MARK: 도트 그림판(순수 — 셀 단위로 결정적)
+
+final class PixelGridTests: XCTestCase {
+    private func count(_ g: PixelGrid) -> Int { g.cells.filter { $0 != 0 }.count }
+
+    /// 디더링은 네 단계로 끊는다 — ½ 은 4×4 마다 정확히 8셀, 0·1 은 비우거나 채운다.
+    func testDitherIsQuantizedToFourLevels() {
+        func covered(_ a: Double) -> Int { (0..<16).filter { PixelGrid.covers(a, $0 % 4, $0 / 4) }.count }
+        XCTAssertEqual(covered(1), 16); XCTAssertEqual(covered(0), 0); XCTAssertEqual(covered(0.05), 0)
+        XCTAssertEqual(covered(0.5), 8); XCTAssertEqual(covered(0.55), 8, "같은 단계는 같은 무늬")
+        XCTAssertEqual(covered(0.25), 4); XCTAssertEqual(covered(0.75), 12)
+    }
+
+    func testDrawingOutsideTheGridIsDropped() {
+        var g = PixelGrid(cols: 8, rows: 8, unit: 8)
+        g.plot(-1, 0, .red); g.plot(8, 3, .red); g.plot(2, 99, .red)
+        g.sparkle(x: 5, y: 5, size: 0.3, color: .red, opacity: 1)   // 칸 밖 멀리
+        XCTAssertEqual(count(g), 0)
+    }
+
+    /// 빛 번짐은 반투명 대신 단색 띠 — 가운데는 흰색 쪽 심지, 반경 밖은 비어 있다. 약해지면 띠가 줄어든다.
+    func testGlowIsSolidBandsThatShrinkAsItFades() {
+        var strong = PixelGrid(cols: 40, rows: 40, unit: 20)
+        strong.glow(x: 0, y: 0, radius: 0.8, color: .blue, alpha: 1)
+        XCTAssertEqual(strong.color(at: 20, 20), PixelGrid.lighten(.blue, 0.8), "심지")
+        XCTAssertNil(strong.color(at: 0, 0), "반경 밖")
+        var weak = PixelGrid(cols: 40, rows: 40, unit: 20)
+        weak.glow(x: 0, y: 0, radius: 0.8, color: .blue, alpha: 0.4)
+        XCTAssertLessThan(count(weak), count(strong))
+        XCTAssertNotEqual(weak.color(at: 20, 20), PixelGrid.lighten(.blue, 0.8), "약하면 흰 심지가 없다")
+    }
+
+    /// 고리는 디더링하지 않는다(점선처럼 끊긴다) — 사라질 땐 가늘어지다 없어진다.
+    func testRingThinsInsteadOfDithering() {
+        func ring(_ a: Double) -> PixelGrid {
+            var g = PixelGrid(cols: 60, rows: 60, unit: 20)
+            g.ring(radius: 1, width: 0.2, color: .orange, alpha: a)
+            return g
+        }
+        XCTAssertGreaterThan(count(ring(1)), count(ring(0.4)))
+        XCTAssertGreaterThan(count(ring(0.4)), 0)
+        XCTAssertEqual(count(ring(0.1)), 0)
+        // 고리 위 한 줄이 빈틈없이 이어진다(디더링 구멍이 없다).
+        let thin = ring(0.4)
+        let top = (0..<60).first { j in thin.color(at: 30, j) != nil }
+        XCTAssertNotNil(top)
+    }
+
+    /// 도트 몬스터볼: 위는 빨강·아래는 흰색·가운데는 버튼. 180도 돌리면 위아래가 바뀌고, 닫힘 번쩍임은 볼을 하얗게.
+    func testPixelPokeBallRegionsFollowSpinAndFlash() {
+        func ball(_ b: PixelGrid.Ball) -> PixelGrid {
+            var g = PixelGrid(cols: 40, rows: 40, unit: 20)
+            g.pokeBall(b)
+            return g
+        }
+        let red = Color(red: 0.9, green: 0.1, blue: 0.13), redLight = Color(red: 1, green: 0.45, blue: 0.4)
+        let redDark = Color(red: 0.55, green: 0.03, blue: 0.06)
+        let reds: Set<Color> = [red, redLight, redDark]
+        let upright = ball(.init(x: 0, y: 0, diameter: 1.6))
+        XCTAssertTrue(reds.contains(upright.color(at: 26, 8) ?? .clear), "위 덮개는 빨강")
+        XCTAssertEqual(upright.color(at: 14, 27), .white, "아랫부분은 흰색(빛 받는 쪽)")
+        XCTAssertEqual(upright.color(at: 20, 20), .white, "버튼 가운데")
+        XCTAssertNil(upright.color(at: 0, 0), "볼 밖")
+        let flipped = ball(.init(x: 0, y: 0, diameter: 1.6, spin: 180))
+        XCTAssertTrue(reds.contains(flipped.color(at: 20, 32) ?? .clear), "뒤집으면 빨강이 아래로")
+        let flash = ball(.init(x: 0, y: 0, diameter: 1.6, flash: 1))
+        XCTAssertTrue(flash.palette.allSatisfy { $0 == .white }, "닫히는 순간 하얗게 번쩍")
+        XCTAssertEqual(count(ball(.init(x: 0, y: 0, diameter: 1.6, alpha: 0))), 0)
+    }
+
+    /// 출력은 가로로 이어진 같은 색을 한 사각형으로 묶는다(색마다 경로 하나).
+    func testPathsMergeHorizontalRunsPerColor() {
+        var g = PixelGrid(cols: 6, rows: 1, unit: 6)
+        for i in 0..<4 { g.plot(i, 0, .red) }
+        g.plot(5, 0, .blue)
+        let paths = g.paths(origin: .zero, cell: 2)
+        XCTAssertEqual(paths.count, 2)
+        XCTAssertEqual(paths.first { $0.0 == .red }?.1.boundingRect, CGRect(x: 0, y: 0, width: 8, height: 2))
+        XCTAssertEqual(paths.first { $0.0 == .blue }?.1.boundingRect, CGRect(x: 10, y: 0, width: 2, height: 2))
+    }
+
+    func testCellSizeSnapsToHalfPoints() {
+        XCTAssertEqual(PixelGrid.cellSize(box: 76), 1.5)
+        XCTAssertEqual(PixelGrid.cellSize(box: 128), 2.5)
+        XCTAssertEqual(PixelGrid.cellSize(box: 4), 0.5, "아주 작아도 0 이 되지 않는다")
     }
 }

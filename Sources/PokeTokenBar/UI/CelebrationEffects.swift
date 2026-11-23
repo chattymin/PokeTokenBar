@@ -205,7 +205,8 @@ enum HatchEffect {
         if f.revealed {
             let fade = 1 - FX.smoothstep(reveal, reveal + tail * 0.7, t)
             f.glow = p.glow * fade
-            f.rays = p.rays ? fade : 0
+            // 광선은 깨지는 순간 빠르게 걷힌다 — 속도선·고리와 겹치면 화면이 어지럽다.
+            f.rays = p.rays ? 1 - FX.smoothstep(reveal, reveal + 0.25, t) : 0
             f.hatchlingScale = FX.springPop(t - reveal)
             f.hatchWhite = 1 - FX.smoothstep(reveal + 0.03, reveal + 0.24, t)
         } else {
@@ -272,9 +273,9 @@ private struct PolylineShape: Shape {
 
 /// 부화 연출 한 순간. `egg`·`hatchling` 은 호출자가 그린다(앱은 SpriteView, 테스트는 고정 이미지).
 ///
-/// 그림 원칙(두 번째 "허접하다" 피드백 뒤): 픽셀 스프라이트 위에 흐린 그라데이션 덩어리를 얹지 않는다.
-/// 빛은 또렷한 모양(윤곽·빛줄기·속도선·고리·반짝이)으로 그리고, 번짐은 작은 심지에만 쓴다. 칸을 덮는
-/// 불투명 섬광 원판도 쓰지 않는다 — 대신 알 자체가 하얗게 달아올랐다 터진다.
+/// 그림 원칙(두 번의 "허접하다" 피드백 뒤): 빛·금·입자는 전부 도트 그림판(`PixelCanvas`)에 찍는다 — 스프라이트와
+/// 같은 그림체가 돼야 게임 화면처럼 보인다. 칸을 덮는 섬광 원판은 쓰지 않는다. 대신 알 자체가 하얗게
+/// 달아올랐다 터지고, 포켓몬은 흰 실루엣으로 튀어나온다.
 @MainActor
 struct HatchEffectView<Egg: View, Hatchling: View>: View {
     let profile: HatchEffect.Profile
@@ -301,7 +302,7 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
 
     private var line: CGFloat { size / 76 }
 
-    /// 등급 표의 순위(0 = 커먼) — 흔들림 세기·속도선 수를 등급과 같이 키운다.
+    /// 등급 표의 순위(0 = 커먼) — 흔들림 세기·속도선 굵기를 등급과 같이 키운다.
     private var tier: Double { Double(profile.rarity.sortRank) }
 
     /// 알 그림의 윗부분 — 튀어 오르며 돌아 옆으로 떨어진다.
@@ -333,20 +334,16 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
                                  anchor: UnitPoint(x: 0.5, y: 0.85))
                 if !reduceMotion, f.sinceBreak < 0.6 {
                     let bt = f.sinceBreak
-                    let scale = HatchEffect.eggInset + HatchEffect.swell
                     egg.brightness(1 - FX.smoothstep(0, 0.12, bt))
                         .mask(PolylineShape(points: HatchEffect.shellMask(top: false), centered: true, closed: true))
-                        .scaleEffect(scale)
+                        .scaleEffect(HatchEffect.eggInset + HatchEffect.swell)
                         .offset(y: size * 0.18 * bt * bt * 4)
                         .opacity(1 - FX.smoothstep(0.08, 0.26, bt))
                 }
             } else {
                 ZStack {
                     egg.brightness(f.eggWhite)
-                    ForEach(0..<min(profile.cracks, HatchEffect.crackPaths.count), id: \.self) { k in
-                        let progress = f.crackProgress.indices.contains(k) ? f.crackProgress[k] : 0
-                        if progress > 0 { crack(k, progress: progress, tint: tint) }
-                    }
+                    cracks(f, tint: tint)
                 }
                 // 등급색 윤곽 — 번진 그림자 대신 알 모양 그대로의 또렷한 테두리가 차오른다.
                 .celebrationRim(tint, width: 1.8 * line * f.glow)
@@ -358,26 +355,31 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
         .offset(shake)
     }
 
-    /// 금 하나 — 어두운 선 아래에 밝은 결(깎인 느낌). 희귀 이상은 그 금 속이 등급색으로 빛난다.
-    @ViewBuilder
-    private func crack(_ k: Int, progress: Double, tint: Color) -> some View {
-        let shape = PolylineShape(points: HatchEffect.crackPaths[k]).trim(from: 0, to: reduceMotion ? 1 : progress)
-        let opacity = reduceMotion ? progress : 1
-        let style = { (w: CGFloat) in StrokeStyle(lineWidth: w * line, lineCap: .butt, lineJoin: .miter) }
-        if profile.leaksLight {
-            ZStack {
-                shape.stroke(EggPalette.outline, style: style(3.4))
-                shape.stroke(tint, style: style(2.2))
-                shape.stroke(Color.white, style: style(0.9))
+    /// 금 — 알과 같이 기울도록 알 위에 겹친 도트 그림판. 커먼·언커먼은 한 셀 어두운 금 아래 밝은 결(깎인 느낌),
+    /// 희귀 이상은 세 셀 어두운 틈 속에 등급색 빛과 흰 마디.
+    private func cracks(_ f: HatchEffect.Frame, tint: Color) -> some View {
+        let p = profile
+        let progress = f.crackProgress
+        let reduce = reduceMotion
+        return PixelCanvas(box: size) { g in
+            for k in 0..<min(p.cracks, HatchEffect.crackPaths.count) {
+                let grown = progress.indices.contains(k) ? progress[k] : 0
+                guard grown > 0 else { continue }
+                let pts = HatchEffect.crackPaths[k].map { (Double($0.x) - 0.5, Double($0.y) - 0.5) }
+                let alpha = reduce ? grown : 1, upTo = reduce ? 1 : grown
+                if p.leaksLight {
+                    g.polyline(pts, upTo: upTo, thickness: 3, color: EggPalette.outline, alpha: alpha)
+                    g.polyline(pts, upTo: upTo, thickness: 1, color: tint, alpha: alpha)
+                    for (x, y) in pts.dropFirst().dropLast() where upTo >= 1 {
+                        g.plot(Int(g.cx(x).rounded(.down)), Int(g.cy(y).rounded(.down)), .white, alpha: alpha)
+                    }
+                } else {
+                    let below = pts.map { ($0.0, $0.1 + g.cellLength) }
+                    g.polyline(below, upTo: upTo, color: .white, alpha: alpha * 0.8)
+                    g.polyline(pts, upTo: upTo, thickness: p.glow > 0 ? 2 : 1, color: EggPalette.outline, alpha: alpha)
+                    if p.glow > 0 { g.polyline(pts, upTo: upTo, color: tint, alpha: alpha) }
+                }
             }
-            .opacity(opacity)
-        } else {
-            ZStack {
-                shape.stroke(Color.white.opacity(0.7), style: style(1.2)).offset(y: 1.1 * line)
-                shape.stroke(EggPalette.outline, style: style(1.9))
-                if profile.glow > 0 { shape.stroke(tint, style: style(0.8)) }
-            }
-            .opacity(opacity)
         }
     }
 
@@ -387,13 +389,12 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
         let tint = celebrationTint(p.rarity)
         let t = elapsed
         let reduce = reduceMotion
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
+        return PixelCanvas(box: size) { g in
             if f.glow > 0, !f.revealed {
-                ctx.halo(s, radius: 0.44, outer: 0.8, color: tint, opacity: f.glow * 0.45)
+                g.halo(y: 0.03, inner: 0.4, outer: 0.78, color: tint, alpha: f.glow * 0.55)
             }
             if f.rays > 0, !reduce {
-                Self.rays(ctx, s, tint: tint, opacity: f.rays, angle: f.rayAngle)
+                HatchEffect.rays(&g, tint: tint, opacity: f.rays, angle: f.rayAngle)
             }
             if p.leaksLight, !f.revealed, !reduce {
                 // 금 사이로 새는 빛 — 다 자란 금마다 바깥쪽으로 빛줄기가 뻗어 떨린다(등급색).
@@ -407,58 +408,57 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
                         let angle = atan2(Double(o.y - center.y), Double(o.x - center.x)) + (j == 0 ? -0.25 : 0.2)
                         let flicker = 0.8 + 0.2 * sin(t * 23 + Double(k * 3 + j))
                         let len = (0.22 + 0.3 * f.glow) * flicker * FX.smoothstep(0.3, 1, grown)
-                        ctx.beam(s, x: Double(o.x), y: Double(o.y), angle: angle, length: len,
-                                 width: 0.07 + 0.05 * f.glow, color: tint, opacity: 0.9 * flicker)
+                        g.beam(x: Double(o.x), y: Double(o.y), angle: angle, length: len,
+                               width: 0.08 + 0.06 * f.glow, color: tint, alpha: 0.95 * flicker)
                     }
                 }
             }
             if p.motes > 0, !reduce {
                 for m in FX.risingMotes(seed: 31, count: p.motes, at: t, from: 0.4, until: p.revealAt + 0.4) {
-                    ctx.sparkle(s, FX.Particle(x: m.x, y: m.y, size: m.size * 1.7, opacity: m.opacity, shape: .sparkle),
-                                color: Color(red: 1, green: 0.72, blue: 0.15))
+                    g.sparkle(x: m.x, y: m.y, size: m.size * 1.8, color: Color(red: 1, green: 0.7, blue: 0.12),
+                              opacity: m.opacity)
                 }
             }
         }
     }
 
-    /// 깨지는 순간 — 작고 뜨거운 심지, 사방으로 뻗는 속도선, 또렷한 고리, 껍질 조각, 반짝이.
+    /// 깨지는 순간 — 작고 뜨거운 심지, 사방으로 뻗는 속도선, 고리, 껍질 조각, 반짝이.
     private func burst(_ f: HatchEffect.Frame) -> some View {
         let p = profile
         let tint = celebrationTint(p.rarity)
         let reduce = reduceMotion
         let shinyOn = shiny
         let tierRank = tier
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
+        return PixelCanvas(box: size) { g in
             if f.flash > 0 {
                 // 칸을 덮는 원판이 아니라 알 크기만 한 뜨거운 심지(공개 뒤 살짝 커지며 꺼진다).
                 let grow = f.revealed && !reduce ? FX.easeOutCubic(f.sinceBreak / 0.3) : 0
-                ctx.glow(s, x: 0, y: 0.02, radius: 0.4 + 0.18 * grow, color: tint, opacity: f.flash * 0.6)
-                ctx.glow(s, x: 0, y: 0.02, radius: 0.24 + 0.06 * grow, color: .white, opacity: f.flash * 0.85)
+                g.glow(x: 0, y: 0.02, radius: 0.42 + 0.2 * grow, color: tint, alpha: f.flash * 0.8)
+                g.glow(x: 0, y: 0.02, radius: 0.26 + 0.08 * grow, color: .white, alpha: f.flash)
             }
             guard f.revealed, !reduce else { return }
             let bt = f.sinceBreak
             let reach = p.burst / 2
-            ctx.speedLines(s, seed: 41, count: p.sparkles + 4, progress: bt / 0.42, from: 0.44, reach: reach,
-                           width: 0.05 + 0.012 * tierRank, color: tint, opacity: 1)
+            HatchEffect.speedLines(&g, seed: 41, count: p.sparkles + 4, progress: bt / 0.42, from: 0.44, reach: reach,
+                                   thickness: tierRank >= 2 ? 2 : 1, color: tint)
             if bt < 0.5 {
                 let u = bt / 0.5
-                ctx.ring(s, radius: 0.46 + (reach - 0.5) * FX.easeOutCubic(u), width: 0.06 * (1 - u) + 0.015,
-                         color: tint, opacity: 1 - u)
+                g.ring(radius: 0.46 + (reach - 0.5) * FX.easeOutCubic(u), width: 0.07 * (1 - u) + 0.02,
+                       color: tint, alpha: 1 - u * u)
             }
             if tierRank >= 3, bt > 0.08, bt < 0.6 {
                 let u = (bt - 0.08) / 0.52
-                ctx.ring(s, radius: 0.44 + (reach * 0.8 - 0.44) * FX.easeOutCubic(u), width: 0.035 * (1 - u) + 0.01,
-                         color: tint, opacity: 0.8 * (1 - u))
+                g.ring(radius: 0.44 + (reach * 0.8 - 0.44) * FX.easeOutCubic(u), width: 0.04 * (1 - u) + 0.02,
+                       color: tint, alpha: 1 - u * u)
             }
-            for (i, shard) in FX.debris(seed: UInt64(11 + p.fragments), count: p.fragments, at: bt,
-                                        speed: 1.1...2.2, spread: 1.45, gravity: 2.6, drag: 3.0, life: 0.95,
-                                        origin: (0, -0.08), size: 0.08...0.14).enumerated() {
-                ctx.shellShard(s, shard, seed: i)
+            for (i, s) in FX.debris(seed: UInt64(11 + p.fragments), count: p.fragments, at: bt,
+                                    speed: 1.1...2.2, spread: 1.45, gravity: 2.6, drag: 3.0, life: 0.95,
+                                    origin: (0, -0.04), size: 0.08...0.14).enumerated() {
+                g.shard(x: s.x, y: s.y, size: s.size, rotation: s.rotation, seed: i, opacity: s.opacity)
             }
-            for spark in FX.burst(seed: UInt64(53 + p.sparkles), count: p.sparkles, at: bt - 0.06,
-                                  reach: reach * 0.85, life: 0.95, size: 0.1...0.18, inner: 0.4) {
-                ctx.sparkle(s, spark, color: tint)
+            for s in FX.burst(seed: UInt64(53 + p.sparkles), count: p.sparkles, at: bt - 0.06,
+                              reach: reach * 0.85, life: 0.95, size: 0.1...0.18, inner: 0.4) {
+                g.sparkle(x: s.x, y: s.y, size: s.size, color: tint, opacity: s.opacity)
             }
             if shinyOn {
                 // 이로치: 공개 0.35초 뒤 오른쪽 위에서 따로 반짝인다(✨ 자리).
@@ -466,37 +466,57 @@ struct HatchEffectView<Egg: View, Hatchling: View>: View {
                     let local = bt - 0.35 - Double(i) * 0.12
                     guard local > 0, local < 0.7 else { continue }
                     let pulse = sin(local / 0.7 * .pi)
-                    ctx.sparkle(s, FX.Particle(x: 0.28 + Double(i % 2) * 0.12, y: -0.32 + Double(i / 2) * 0.1,
-                                               size: 0.14 + 0.1 * pulse, rotation: 0, opacity: pulse,
-                                               shape: .sparkle),
-                                color: Color(red: 0.35, green: 0.7, blue: 1))
+                    g.sparkle(x: 0.28 + Double(i % 2) * 0.12, y: -0.32 + Double(i / 2) * 0.1, size: 0.16 + 0.1 * pulse,
+                              color: Color(red: 0.35, green: 0.7, blue: 1), opacity: pulse)
                 }
             }
         }
     }
+}
 
-    /// 전설의 광선 — 흐린 부채꼴 대신 또렷한 쐐기 두 벌이 서로 반대로 돈다(알 자리는 비운다).
-    private static func rays(_ ctx: GraphicsContext, _ s: FXSpace, tint: Color, opacity: Double, angle: Double) {
-        let r = s.length(Double(CelebrationFX.overflow) / 2 * 0.96)
+extension HatchEffect {
+    /// 전설의 광선 — 서로 반대로 도는 쐐기 두 벌(등급색 넓은 것, 금빛 가는 것). 알 자리(반경 0.36 안)는
+    /// 비우고, 바깥으로 갈수록 디더링으로 옅어진다.
+    static func rays(_ g: inout PixelGrid, tint: Color, opacity: Double, angle: Double) {
         let sets: [(count: Int, half: Double, turn: Double, color: Color, alpha: Double)] = [
-            (12, 0.06, 1, tint, 0.5), (12, 0.025, -0.6, Color(red: 1, green: 0.9, blue: 0.5), 0.7)]
+            (12, 0.07, 1, tint, 0.65), (12, 0.028, -0.6, Color(red: 1, green: 0.88, blue: 0.45), 0.85)]
+        let reach = Double(CelebrationFX.overflow) / 2
+        let base = angle * .pi / 180
         for set in sets {
-            var path = Path()
-            for i in 0..<set.count {
-                let a = Double(i) / Double(set.count) * 2 * .pi + set.turn * angle * .pi / 180
-                path.move(to: s.center)
-                path.addLine(to: CGPoint(x: s.center.x + r * CGFloat(cos(a - set.half)),
-                                         y: s.center.y + r * CGFloat(sin(a - set.half))))
-                path.addLine(to: CGPoint(x: s.center.x + r * CGFloat(cos(a + set.half)),
-                                         y: s.center.y + r * CGFloat(sin(a + set.half))))
-                path.closeSubpath()
+            let period = 2 * Double.pi / Double(set.count)
+            let pale = PixelGrid.lighten(set.color, 0.45)   // 셀마다 색 변환을 돌리지 않게 밖에서 한 번
+            g.fill(x0: -reach, y0: -reach, x1: reach, y1: reach) { x, y, _, _ in
+                let r = (x * x + y * y).squareRoot()
+                guard r > 0.36, r < reach else { return nil }
+                var rel = (atan2(y, x) - set.turn * base).truncatingRemainder(dividingBy: period)
+                if rel < 0 { rel += period }
+                guard min(rel, period - rel) <= set.half else { return nil }
+                // 단색 쐐기 — 안쪽 본색, 바깥 옅은 색. 세기가 약하면 쐐기가 짧아진다. 끝 한 뼘만 바둑판.
+                let end = 0.44 + (reach * 0.95 - 0.44) * opacity * set.alpha
+                guard r < end else { return nil }
+                let color = r < 0.44 + (end - 0.44) * 0.55 ? set.color : pale
+                return (color, r > end - 0.06 ? 0.5 : 1)
             }
-            var c = ctx
-            c.opacity = opacity * set.alpha
-            c.fill(path, with: .radialGradient(Gradient(stops: [
-                .init(color: set.color.opacity(0), location: 0.36), .init(color: set.color, location: 0.44),
-                .init(color: set.color.opacity(0.3), location: 0.75), .init(color: set.color.opacity(0), location: 1)]),
-                center: s.center, startRadius: 0, endRadius: r))
+        }
+    }
+
+    /// 중심에서 사방으로 뻗는 도트 속도선 — 머리는 감속하며 바깥으로, 꼬리는 따라붙어 짧아진다. 머리는 흰 셀.
+    static func speedLines(_ g: inout PixelGrid, seed: UInt64, count: Int, progress u: Double, from inner: Double,
+                           reach: Double, thickness: Int, color: Color) {
+        guard u >= 0, u < 0.92 else { return }
+        var rng = CelebrationFX.Random(seed: seed)
+        let pale = PixelGrid.lighten(color, 0.45)
+        for i in 0..<count {
+            let a = Double(i) / Double(count) * 2 * .pi + rng.range(-0.18, 0.18)
+            let len = rng.range(0.6, 1)
+            let head = inner + (reach - inner) * len * FX.easeOutCubic(u * 1.15)
+            let tail = inner + (head - inner) * (0.2 + 0.7 * u)
+            // 단색 마디(옅은 꼬리 → 본색 → 흰 머리) — 디더링한 꼬리는 점선처럼 끊겨 보였다.
+            let mid = tail + (head - tail) * 0.45, tip = max(tail, head - g.cellLength * 2)
+            let width = u > 0.55 ? 1 : thickness
+            g.line(tail * cos(a), tail * sin(a), mid * cos(a), mid * sin(a), thickness: width, color: pale)
+            g.line(mid * cos(a), mid * sin(a), head * cos(a), head * sin(a), thickness: width, color: color)
+            g.line(tip * cos(a), tip * sin(a), head * cos(a), head * sin(a), thickness: width, color: .white)
         }
     }
 }
@@ -632,44 +652,46 @@ struct EvolutionEffectView<From: View, To: View>: View {
     private func light(_ f: EvolutionEffect.Frame) -> some View {
         let t = elapsed
         let reduce = reduceMotion
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
+        return PixelCanvas(box: size) { g in
             let pale = Self.rimColor
+            let gold = Color(red: 1, green: 0.78, blue: 0.2)
             if !reduce {
-                // 소용돌이치며 모여드는 빛 — 바깥쪽으로 꼬리를 끄는 알갱이.
+                // 소용돌이치며 모여드는 빛 — 바깥쪽으로 꼬리를 끄는 도트 알갱이(머리는 흰 셀).
                 for m in FX.converging(seed: 7, count: 30, at: t, from: 0.05, until: 1.9, radius: 0.78) {
                     let r = (m.x * m.x + m.y * m.y).squareRoot()
                     let theta = atan2(m.y, m.x) - 0.22
                     let tail = min(1.04, r * 1.4 + 0.04)
-                    ctx.streak(s, x: m.x, y: m.y, tailX: tail * cos(theta), tailY: tail * sin(theta),
-                               size: m.size * 1.2, color: pale, opacity: m.opacity)
+                    guard m.opacity > 0.3 else { continue }
+                    // 단색 꼬리 + 흰 머리(디더링한 꼬리는 끊긴 점선이 됐다). 꼬리 길이로 세기를 보인다.
+                    let tr = r + (tail - r) * m.opacity
+                    g.line(tr * cos(theta), tr * sin(theta), m.x, m.y, color: pale)
+                    g.plot(Int(g.cx(m.x).rounded(.down)), Int(g.cy(m.y).rounded(.down)), .white)
                 }
                 if f.gather > 0 {
-                    ctx.glow(s, x: 0, y: 0, radius: 0.28 + 0.2 * f.gather, color: pale, opacity: f.gather * 0.7)
+                    g.glow(x: 0, y: 0, radius: 0.3 + 0.2 * f.gather, color: pale, alpha: f.gather * 0.8)
                 }
             }
             if f.flash > 0 {
                 let grow = f.revealed && !reduce ? FX.easeOutCubic(f.sinceReveal / 0.3) : 0
-                ctx.glow(s, x: 0, y: 0, radius: 0.45 + 0.2 * grow, color: pale, opacity: f.flash * 0.75)
-                ctx.glow(s, x: 0, y: 0, radius: 0.3 + 0.12 * grow, color: .white, opacity: f.flash * 0.95)
+                g.glow(x: 0, y: 0, radius: 0.46 + 0.2 * grow, color: pale, alpha: f.flash * 0.85)
+                g.glow(x: 0, y: 0, radius: 0.3 + 0.1 * grow, color: .white, alpha: f.flash)
             }
             guard f.revealed, !reduce else { return }
             let rt = f.sinceReveal
-            ctx.speedLines(s, seed: 29, count: 20, progress: rt / 0.45, from: 0.3, reach: 1.02, width: 0.06,
-                           color: pale, opacity: 1)
+            HatchEffect.speedLines(&g, seed: 29, count: 20, progress: rt / 0.45, from: 0.36, reach: 1.02,
+                                   thickness: 2, color: pale)
             if rt < 0.5 {
                 let u = rt / 0.5
-                ctx.ring(s, radius: 0.34 + 0.62 * FX.easeOutCubic(u), width: 0.06 * (1 - u) + 0.015,
-                         color: pale, opacity: 1 - u)
+                g.ring(radius: 0.4 + 0.58 * FX.easeOutCubic(u), width: 0.07 * (1 - u) + 0.02, color: pale, alpha: 1 - u * u)
             }
             if rt > 0.1, rt < 0.6 {
                 let u = (rt - 0.1) / 0.5
-                ctx.ring(s, radius: 0.3 + 0.45 * FX.easeOutCubic(u), width: 0.035 * (1 - u) + 0.01,
-                         color: Color(red: 1, green: 0.82, blue: 0.3), opacity: 0.85 * (1 - u))
+                g.ring(radius: 0.36 + 0.42 * FX.easeOutCubic(u), width: 0.04 * (1 - u) + 0.02, color: gold,
+                       alpha: 1 - u * u)
             }
-            for (i, spark) in FX.burst(seed: 19, count: 16, at: rt - 0.06, reach: 0.9, life: 0.8,
-                                       size: 0.1...0.17).enumerated() {
-                ctx.sparkle(s, spark, color: i.isMultiple(of: 2) ? Color(red: 1, green: 0.75, blue: 0.2) : pale)
+            for (i, s) in FX.burst(seed: 19, count: 16, at: rt - 0.06, reach: 0.9, life: 0.8, size: 0.1...0.17,
+                                   inner: 0.36).enumerated() {
+                g.sparkle(x: s.x, y: s.y, size: s.size, color: i.isMultiple(of: 2) ? gold : pale, opacity: s.opacity)
             }
         }
     }
@@ -794,87 +816,6 @@ enum GraduationEffect {
     }
 }
 
-/// 몬스터볼 — 구형 음영(방사 그라데이션), 반사광, 굵은 검은 띠, 흰 고리를 두른 버튼. `open` 만큼 위 덮개가
-/// 뒤쪽 경첩을 축으로 젖혀지고 안쪽 빛이 보인다.
-@MainActor
-struct PokeBallView: View {
-    let diameter: CGFloat
-    var open: Double = 0
-    var buttonRed: Double = 0
-    var buttonDark: Double = 0
-    var closeFlash: Double = 0
-
-    var body: some View {
-        let d = diameter
-        let outline = max(1, d * 0.055)
-        ZStack {
-            // 아랫부분 + 아래쪽 띠.
-            HalfBall(top: false)
-                .fill(RadialGradient(colors: [Color.white, Color(red: 0.8, green: 0.81, blue: 0.86)],
-                                     center: UnitPoint(x: 0.35, y: 0.3), startRadius: 0, endRadius: d * 0.75))
-                .overlay(HalfBall(top: false, bandFraction: 0.12).fill(Color(white: 0.08)))
-                .overlay(HalfBall(top: false).stroke(Color(white: 0.08), lineWidth: outline))
-            // 안쪽(열렸을 때만 보인다) — 빛이 새어 나오는 입구.
-            Ellipse()
-                .fill(RadialGradient(colors: [Color.white, Color(red: 1, green: 0.62, blue: 0.55),
-                                              Color(red: 0.55, green: 0.04, blue: 0.06)],
-                                     center: .center, startRadius: 0, endRadius: d * 0.42))
-                .overlay(Ellipse().stroke(Color(white: 0.08), lineWidth: outline * 0.8))
-                .frame(width: d * 0.9, height: d * 0.3)
-                .opacity(open)
-            // 위 덮개 — 뒤쪽 경첩으로 열린다.
-            HalfBall(top: true)
-                .fill(RadialGradient(colors: [Color(red: 1, green: 0.5, blue: 0.45), Color(red: 0.9, green: 0.1, blue: 0.13),
-                                              Color(red: 0.5, green: 0.02, blue: 0.05)],
-                                     center: UnitPoint(x: 0.32, y: 0.22), startRadius: 0, endRadius: d * 0.8))
-                .overlay(HalfBall(top: true, bandFraction: 0.12).fill(Color(white: 0.08)))
-                .overlay(HalfBall(top: true).stroke(Color(white: 0.08), lineWidth: outline))
-                .overlay(alignment: .topLeading) {
-                    // 반사광 — 또렷한 흰 타원(번지게 하지 않는다).
-                    Ellipse().fill(Color.white.opacity(0.9))
-                        .frame(width: d * 0.2, height: d * 0.1)
-                        .rotationEffect(.degrees(-30))
-                        .offset(x: d * 0.2, y: d * 0.14)
-                }
-                // 앞에서 보면 뒤쪽 경첩으로 젖혀지는 덮개는 위로 들리며 짧아진다(뒤로 누운 만큼 앞면이 줄어든다).
-                .scaleEffect(x: 1, y: 1 - 0.35 * open, anchor: .bottom)
-                .rotationEffect(.degrees(-14 * open), anchor: UnitPoint(x: 0.1, y: 0.5))
-                .offset(y: -d * 0.34 * open)
-            // 버튼 — 이음매 앞쪽(열리면 아랫부분 쪽에 남는다).
-            ZStack {
-                Circle().fill(Color(white: 0.08)).frame(width: d * 0.36, height: d * 0.36)
-                Circle().fill(Color.white).frame(width: d * 0.27, height: d * 0.27)
-                Circle()
-                    .fill(RadialGradient(colors: [Color.white, Color(white: 0.8)], center: UnitPoint(x: 0.35, y: 0.3),
-                                         startRadius: 0, endRadius: d * 0.12))
-                    .overlay(Circle().fill(Color(red: 1, green: 0.15, blue: 0.15)).opacity(buttonRed * 0.9))
-                    .overlay(Circle().fill(Color(white: 0.35)).opacity(buttonDark * 0.75))
-                    .overlay(Circle().stroke(Color(white: 0.3), lineWidth: max(0.6, d * 0.02)))
-                    .frame(width: d * 0.17, height: d * 0.17)
-            }
-        }
-        .frame(width: d, height: d)
-    }
-}
-
-/// 원의 위/아래 반쪽. `bandFraction` 이 있으면 이음매 쪽 띠(지름 대비 두께의 절반)만.
-private struct HalfBall: Shape {
-    let top: Bool
-    var bandFraction: CGFloat? = nil
-    func path(in rect: CGRect) -> Path {
-        let c = CGPoint(x: rect.midX, y: rect.midY)
-        let r = min(rect.width, rect.height) / 2
-        var full = Path()
-        full.addArc(center: c, radius: r, startAngle: .degrees(top ? 180 : 0), endAngle: .degrees(top ? 360 : 180),
-                    clockwise: false)
-        full.closeSubpath()
-        guard let band = bandFraction else { return full }
-        let h = rect.height * band / 2
-        let strip = Path(CGRect(x: rect.minX, y: top ? c.y - h : c.y, width: rect.width, height: h))
-        return full.intersection(strip)
-    }
-}
-
 /// 졸업 연출 한 순간. `pokemon`·`egg` 는 호출자가 그린다.
 @MainActor
 struct GraduationEffectView<Pokemon: View, Egg: View>: View {
@@ -908,134 +849,87 @@ struct GraduationEffectView<Pokemon: View, Egg: View>: View {
         }
     }
 
+    /// 빛 층 — 바닥 그림자, 쏟아지는 빛, 붉은 빛줄기, 도트 몬스터볼, 닫힘 번쩍임, 딸깍 별. 볼까지 전부 한
+    /// 도트 그림판에 찍는다(벡터 볼은 도트 포켓몬 옆에서 혼자 매끈해 떠 보였다).
     private func light(_ f: GraduationEffect.Frame) -> some View {
-        let d = size * GraduationEffect.ballDiameter
-        let ballY = Double(GraduationEffect.ballCenter.y) + f.ballDrop
-        return ZStack {
-            behindBall(f, ballY: ballY)
-            PokeBallView(diameter: d, open: f.ballOpen, buttonRed: f.buttonRed, buttonDark: f.buttonDark,
-                         closeFlash: f.closeFlash)
-                .rotationEffect(.degrees(f.ballSpin))
-                .rotationEffect(.degrees(f.ballTilt), anchor: .bottom)
-                .scaleEffect(f.ballScale)
-                .offset(x: size * f.ballX, y: size * ballY)
-                .opacity(f.ballOpacity)
-            inFront(f, ballY: ballY)
-        }
-    }
-
-    /// 볼 뒤: 바닥 그림자, 쏟아지는 빛, 붉은 빛줄기와 그 위를 흐르는 알갱이.
-    private func behindBall(_ f: GraduationEffect.Frame, ballY: Double) -> some View {
         let t = elapsed
         let reduce = reduceMotion
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
+        return PixelCanvas(box: size) { g in
             let red = Self.red
+            let ballY = Double(GraduationEffect.ballCenter.y) + f.ballDrop
             let ground = Double(GraduationEffect.ballCenter.y) + GraduationEffect.ballDiameter * 0.5
-            // 바닥 그림자 — 볼이 높이 떠 있을수록 작고 옅다.
+            // 바닥 그림자 — 볼이 높이 떠 있을수록 작고 옅다(디더링된 검은 타원).
             let height = max(0, -f.ballDrop)
-            let shadowW = GraduationEffect.ballDiameter * 0.8 * (1 - 0.5 * min(1, height / 0.6))
-            if f.ballOpacity > 0, f.ballX < 0.3 {
-                let c = s.point(f.ballX, ground)
-                let w = s.length(shadowW), h = s.length(shadowW * 0.22)
-                var c2 = ctx
-                c2.opacity = f.ballOpacity * 0.28 * (1 - 0.6 * min(1, height / 0.6))
-                c2.fill(Path(ellipseIn: CGRect(x: c.x - w / 2, y: c.y - h / 2, width: w, height: h)), with: .color(.black))
+            // 높이 뜬 볼의 그림자는 몇 셀짜리 점 두 개로만 남아 지저분했다 — 내려오고 나서만 그린다.
+            if f.ballOpacity > 0, f.ballX < 0.3, height < 0.3 {
+                let w = GraduationEffect.ballDiameter * 0.42 * (1 - 0.5 * min(1, height / 0.6))
+                g.ellipse(x: f.ballX, y: ground, rx: w, ry: w * 0.24, color: Color(white: 0.15),
+                          alpha: f.ballOpacity * 0.45 * (1 - 0.6 * min(1, height / 0.6)))
             }
-            guard !reduce else { return }
-            if f.lightCone > 0 {
-                // 열린 볼에서 포켓몬에게 쏟아지는 빛의 원뿔.
-                let top = s.point(0, GraduationEffect.hoverY + 0.02), bottom = 0.42
-                let wTop = s.length(0.1), wBot = s.length(0.42)
-                let b = s.point(0, bottom)
-                var cone = Path()
-                cone.move(to: CGPoint(x: top.x - wTop, y: top.y)); cone.addLine(to: CGPoint(x: top.x + wTop, y: top.y))
-                cone.addLine(to: CGPoint(x: b.x + wBot, y: b.y)); cone.addLine(to: CGPoint(x: b.x - wBot, y: b.y))
-                cone.closeSubpath()
-                var c2 = ctx
-                c2.opacity = f.lightCone * 0.75
-                c2.fill(cone, with: .linearGradient(Gradient(colors: [Color.white, Color(red: 1, green: 0.85, blue: 0.7),
-                                                                      Color(red: 1, green: 0.85, blue: 0.7).opacity(0)]),
-                                                    startPoint: top, endPoint: b))
-            }
-            if f.monRed > 0, f.monOpacity > 0 {
-                // 붉게 변하는 순간 튀는 붉은 불꽃.
-                for spark in FX.burst(seed: 77, count: 8, at: t - 0.5, reach: 0.5, life: 0.5, size: 0.07...0.11) {
-                    ctx.sparkle(s, spark, color: red)
+            if !reduce, f.lightCone > 0 {
+                // 열린 볼에서 포켓몬에게 쏟아지는 빛의 원뿔(아래로 갈수록 디더링으로 옅어진다).
+                let top = GraduationEffect.hoverY + 0.02, bottom = 0.42
+                g.polygon([(-0.1, top), (0.1, top), (0.42, bottom), (-0.42, bottom)],
+                          color: Color(red: 1, green: 0.93, blue: 0.75), alpha: f.lightCone * 0.85) { _, y in
+                    1 - (y - top) / (bottom - top)
                 }
             }
-            if f.beam > 0 {
-                // 붉은 빛의 띠 — 포켓몬 쪽이 굵고 볼 입구로 갈수록 가늘어진다(빨려 드는 방향이 보이게).
-                let steps = 24
+            if !reduce, f.monRed > 0, f.monOpacity > 0 {
+                for s in FX.burst(seed: 77, count: 8, at: t - 0.5, reach: 0.5, life: 0.5, size: 0.07...0.11) {
+                    g.sparkle(x: s.x, y: s.y, size: s.size, color: red, opacity: s.opacity)
+                }
+            }
+            if !reduce, f.beam > 0 {
+                // 붉은 빛의 띠 — 포켓몬 쪽이 굵고 볼 입구로 갈수록 가늘어진다. 원을 촘촘히 찍어 띠를 만든다.
                 let from = f.monPull
-                let pts = (0...steps).map { i in GraduationEffect.pullPoint(from + (1 - from) * Double(i) / Double(steps)) }
+                let steps = 40
                 let bodyWidth = 0.06 + 0.26 * f.monScale
-                func ribbon(_ scale: Double) -> Path {
-                    var left: [CGPoint] = [], right: [CGPoint] = []
+                for (scale, color) in [(1.0, red), (0.45, Color(red: 1, green: 0.55, blue: 0.5)),
+                                       (0.16, Color.white)] {
                     for i in 0...steps {
-                        let a = pts[max(0, i - 1)], b = pts[min(steps, i + 1)]
-                        var nx = -(Double(b.y) - Double(a.y)), ny = Double(b.x) - Double(a.x)
-                        let len = max(1e-6, (nx * nx + ny * ny).squareRoot())
-                        nx /= len; ny /= len
-                        let w = (bodyWidth + (0.035 - bodyWidth) * Double(i) / Double(steps)) * scale / 2
-                        left.append(s.point(Double(pts[i].x) + nx * w, Double(pts[i].y) + ny * w))
-                        right.append(s.point(Double(pts[i].x) - nx * w, Double(pts[i].y) - ny * w))
+                        let u = Double(i) / Double(steps)
+                        let q = GraduationEffect.pullPoint(from + (1 - from) * u)
+                        let w = (bodyWidth + (0.035 - bodyWidth) * u) * scale / 2
+                        g.ellipse(x: Double(q.x), y: Double(q.y), rx: max(w, g.cellLength * 0.5),
+                                  ry: max(w, g.cellLength * 0.5), color: color, alpha: f.beam)
                     }
-                    var p = Path()
-                    p.addLines(left + right.reversed())
-                    p.closeSubpath()
-                    return p
                 }
-                var c2 = ctx
-                c2.opacity = f.beam * 0.55
-                c2.fill(ribbon(1), with: .color(red))
-                c2.opacity = f.beam * 0.95
-                c2.fill(ribbon(0.5), with: .color(red))
-                c2.fill(ribbon(0.18), with: .color(Color(red: 1, green: 0.85, blue: 0.8)))
-                // 빛줄기를 타고 흘러드는 알갱이.
+                // 빛줄기를 타고 흘러드는 흰 알갱이.
                 for i in 0..<9 {
                     let phase = (t * 2.4 + Double(i) / 9).truncatingRemainder(dividingBy: 1)
                     let u = from + (1 - from) * phase
                     let q = GraduationEffect.pullPoint(u), tail = GraduationEffect.pullPoint(max(from, u - 0.1))
-                    ctx.streak(s, x: Double(q.x), y: Double(q.y), tailX: Double(tail.x), tailY: Double(tail.y),
-                               size: 0.06, color: .white, opacity: f.beam * (1 - phase * 0.4))
+                    g.line(Double(tail.x), Double(tail.y), Double(q.x), Double(q.y), color: .white,
+                           alpha0: 0.3 * f.beam, alpha1: f.beam)
                 }
             }
-        }
-    }
-
-    /// 볼 앞: 닫힘 번쩍임, 흔들릴 때 버튼의 붉은 빛, 딸깍 뒤 노란 별.
-    private func inFront(_ f: GraduationEffect.Frame, ballY: Double) -> some View {
-        let t = elapsed
-        let reduce = reduceMotion
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
+            if !reduce, f.buttonRed > 0 {
+                g.glow(x: f.ballX, y: ballY, radius: 0.16, color: red, alpha: f.buttonRed * 0.9)
+            }
+            g.pokeBall(PixelGrid.Ball(x: f.ballX, y: ballY, diameter: GraduationEffect.ballDiameter * f.ballScale,
+                                      spin: f.ballSpin, tilt: f.ballTilt, open: f.ballOpen, buttonRed: f.buttonRed,
+                                      buttonDark: f.buttonDark, flash: f.closeFlash, alpha: f.ballOpacity))
             guard !reduce else { return }
             if f.closeFlash > 0 {
                 let u = 1 - f.closeFlash
-                ctx.glow(s, x: f.ballX, y: ballY, radius: 0.3, color: .white, opacity: f.closeFlash)
-                ctx.ring(s, x: f.ballX, y: ballY, radius: 0.22 + 0.3 * FX.easeOutCubic(u), width: 0.04 * (1 - u) + 0.01,
-                         color: Self.red, opacity: f.closeFlash)
-            }
-            if f.buttonRed > 0 {
-                ctx.glow(s, x: f.ballX, y: ballY, radius: 0.12, color: Self.red, opacity: f.buttonRed * 0.8)
+                g.ring(x: f.ballX, y: ballY, radius: 0.24 + 0.3 * FX.easeOutCubic(u), width: 0.05 * (1 - u) + 0.02,
+                       color: red, alpha: f.closeFlash)
             }
             // 딸깍 — 볼 위로 노란 별 셋이 튀고 작은 반짝이가 흩어진다.
             let ct = t - GraduationEffect.clickAt
             guard ct >= 0 else { return }
             let top = ballY - GraduationEffect.ballDiameter * 0.55
             if ct < 0.3 {
-                ctx.ring(s, x: f.ballX, y: ballY, radius: 0.22 + 0.2 * FX.easeOutCubic(ct / 0.3), width: 0.02,
-                         color: Color(red: 1, green: 0.8, blue: 0.2), opacity: 1 - ct / 0.3)
+                g.ring(x: f.ballX, y: ballY, radius: 0.24 + 0.2 * FX.easeOutCubic(ct / 0.3), width: 0.025,
+                       color: Color(red: 1, green: 0.78, blue: 0.15), alpha: 1 - ct / 0.3)
             }
-            for star in FX.debris(seed: 5, count: 3, at: ct, speed: 1.6...1.9, spread: 0.8, gravity: 2.6,
-                                  drag: 2.6, life: 0.7, origin: (f.ballX, top), size: 0.17...0.2, shape: .star) {
-                ctx.star(s, star)
+            for s in FX.debris(seed: 5, count: 3, at: ct, speed: 1.6...1.9, spread: 0.8, gravity: 2.6,
+                               drag: 2.6, life: 0.7, origin: (f.ballX, top), size: 0.17...0.2, shape: .star) {
+                g.star(x: s.x, y: s.y, size: s.size, rotation: s.rotation * 0.3, opacity: s.opacity)
             }
-            for spark in FX.burst(seed: 9, count: 6, at: ct - 0.05, reach: 0.32, life: 0.45, size: 0.06...0.09) {
-                var q = spark
-                q.y += top
-                ctx.sparkle(s, q, color: Color(red: 1, green: 0.75, blue: 0.15))
+            for s in FX.burst(seed: 9, count: 6, at: ct - 0.05, reach: 0.32, life: 0.45, size: 0.07...0.1) {
+                g.sparkle(x: s.x, y: s.y + top, size: s.size, color: Color(red: 1, green: 0.72, blue: 0.1),
+                          opacity: s.opacity)
             }
         }
     }
@@ -1101,39 +995,46 @@ struct DittoRevealEffectView<Disguise: View, Ditto: View>: View {
     private func light(_ f: DittoRevealEffect.Frame) -> some View {
         let reduce = reduceMotion
         let shinyOn = shiny
-        return Canvas { ctx, canvas in
-            let s = FXSpace(size: canvas, unit: canvas.width / CelebrationFX.overflow)
-            let pink = Color(red: 0.86, green: 0.55, blue: 0.98)
-            if f.flash > 0 {
-                let grow = f.revealed && !reduce ? FX.easeOutCubic(f.sinceReveal / 0.3) : 0
-                ctx.glow(s, x: 0, y: 0, radius: 0.42 + 0.35 * grow, color: pink, opacity: f.flash * 0.7)
-                ctx.glow(s, x: 0, y: 0, radius: 0.34 + 0.25 * grow, color: .white, opacity: f.flash)
+        return ZStack {
+            PixelCanvas(box: size) { g in
+                let pink = Color(red: 0.8, green: 0.45, blue: 0.95)
+                if f.flash > 0 {
+                    let grow = f.revealed && !reduce ? FX.easeOutCubic(f.sinceReveal / 0.3) : 0
+                    g.glow(x: 0, y: 0, radius: 0.42 + 0.35 * grow, color: pink, alpha: f.flash * 0.8)
+                    g.glow(x: 0, y: 0, radius: 0.3 + 0.2 * grow, color: .white, alpha: f.flash)
+                }
+                guard f.revealed, !reduce else { return }
+                if f.sinceReveal < 0.45 {
+                    let u = f.sinceReveal / 0.45
+                    g.ring(radius: 0.38 + 0.4 * FX.easeOutCubic(u), width: 0.05 * (1 - u) + 0.02, color: pink,
+                           alpha: 1 - u * u)
+                }
+                for s in FX.burst(seed: 23, count: 9, at: f.sinceReveal, reach: 0.7, life: 0.7, inner: 0.3) {
+                    g.sparkle(x: s.x, y: s.y, size: s.size * 1.3, color: pink, opacity: s.opacity)
+                }
+                if shinyOn {
+                    for i in 0..<3 {
+                        let local = f.sinceReveal - 0.25 - Double(i) * 0.12
+                        guard local > 0, local < 0.6 else { continue }
+                        let pulse = sin(local / 0.6 * .pi)
+                        g.sparkle(x: 0.3, y: -0.3 + Double(i) * 0.1, size: 0.14 + 0.08 * pulse,
+                                  color: Color(red: 0.35, green: 0.7, blue: 1), opacity: pulse)
+                    }
+                }
             }
-            guard f.revealed, !reduce else { return }
-            for spark in FX.burst(seed: 23, count: 9, at: f.sinceReveal, reach: 0.7, life: 0.7) {
-                ctx.sparkle(s, spark, color: pink)
-            }
-            // 🎭 — 칸 위로 튀어 올랐다 사라진다(예전 헤더 버스트를 빛 층으로 옮겼다 — 플로팅 펫에서도 보이게).
-            let mt = f.sinceReveal - 0.05
-            if mt > 0, mt < 0.85 {
+            // 🎭 — 칸 위로 튀어 올랐다 사라진다(이모지는 도트로 못 그리니 따로 얹는다).
+            Canvas { ctx, canvas in
+                let mt = f.sinceReveal - 0.05
+                guard f.revealed, !reduce, mt > 0, mt < 0.85 else { return }
+                let unit = canvas.width / CelebrationFX.overflow
                 var c = ctx
                 c.opacity = 1 - FX.smoothstep(0.6, 0.85, mt)
                 let pop = FX.easeOutBack(mt / 0.25)
-                let at = s.point(0, -0.58 - 0.08 * FX.easeOutCubic(mt / 0.85))
-                c.translateBy(x: at.x, y: at.y)
+                c.translateBy(x: canvas.width / 2, y: canvas.height / 2 + unit * (-0.58 - 0.08 * FX.easeOutCubic(mt / 0.85)))
                 c.scaleBy(x: pop, y: pop)
-                c.draw(Text("🎭").font(.system(size: s.unit * 0.34)), at: .zero)
+                c.draw(Text("🎭").font(.system(size: unit * 0.34)), at: .zero)
             }
-            if shinyOn {
-                for i in 0..<3 {
-                    let local = f.sinceReveal - 0.25 - Double(i) * 0.12
-                    guard local > 0, local < 0.6 else { continue }
-                    let pulse = sin(local / 0.6 * .pi)
-                    ctx.sparkle(s, FX.Particle(x: 0.3, y: -0.3 + Double(i) * 0.1, size: 0.12 + 0.07 * pulse,
-                                               opacity: pulse, shape: .sparkle),
-                                color: Color(red: 0.55, green: 0.85, blue: 1))
-                }
-            }
+            .allowsHitTesting(false)
         }
     }
 }
