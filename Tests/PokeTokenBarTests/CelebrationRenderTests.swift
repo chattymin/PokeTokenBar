@@ -131,47 +131,98 @@ final class CelebrationRenderTests: XCTestCase {
     /// `scene` draws one moment into a `cell`×`cell` square.
     private func render(name: String, duration: TimeInterval, strip times: [TimeInterval], into dir: URL,
                         cell: CGFloat = CelebrationRenderTests.box + CelebrationRenderTests.pad * 2,
-                        background: Color = .white, gifStart: TimeInterval = 0, gifScale: CGFloat = 2,
+                        cellHeight: CGFloat? = nil, background: Color = .white, gifStart: TimeInterval = 0, gifScale: CGFloat = 2,
                         scene: @escaping (TimeInterval) -> AnyView) throws {
+        let height = cellHeight ?? cell
         let stripView = HStack(spacing: 0) {
             ForEach(Array(times.enumerated()), id: \.offset) { _, t in
                 VStack(spacing: 2) {
-                    scene(t).frame(width: cell, height: cell)
+                    scene(t).frame(width: cell, height: height)
                     Text(String(format: "%.2fs", t)).font(.system(size: 10, design: .monospaced))
                         .foregroundStyle(.secondary)
                 }
-                .frame(width: cell, height: cell + 16)
+                .frame(width: cell, height: height + 16)
             }
         }
         .background(background)
-        try writePNG(try snapshot(stripView, width: cell * CGFloat(times.count), height: cell + 16, scale: 2),
+        try writePNG(try snapshot(stripView, width: cell * CGFloat(times.count), height: height + 16, scale: 2),
                      to: dir.appendingPathComponent("\(name).png"))
 
         let step = 1.0 / 15
         var frames: [CGImage] = []
         for t in stride(from: gifStart, through: duration + 0.3, by: step) {
-            frames.append(try snapshot(scene(t).frame(width: cell, height: cell).background(background),
-                                       width: cell, height: cell, scale: gifScale))
+            frames.append(try snapshot(scene(t).frame(width: cell, height: height).background(background),
+                                       width: cell, height: height, scale: gifScale))
         }
         try writeGIF(frames, delay: step, to: dir.appendingPathComponent("\(name).gif"))
     }
 
     typealias Sprite = CelebrationPlayer.Sprite
 
-    /// The popover header: the sprite layer inside the clipped 76pt box, the light layer overflowing it
-    /// (as `CompanionHeader` composes them), over the popover's light background.
+    /// The popover header as `CompanionHeader` composes it during playback: the 76pt box stays empty and the
+    /// whole sequence (sprite + light) plays on the stage — out of the box, 1.5× bigger, toward the middle of the
+    /// header (`CelebrationStageLayout`), back into the box at the end. Placeholder bars stand in for the info
+    /// column and the rows below, so the frames show what the stage covers.
     private func headerScene(_ kind: CelebrationPlayer.Kind, images: [Sprite: NSImage],
                              reduce: Bool) -> (TimeInterval) -> AnyView {
-        let sprites = images.mapValues { AnyView(self.fitted($0)) }
+        let stageSize = Self.box * CelebrationStageLayout.scale
+        let sprites = images.mapValues { AnyView(self.fitted($0, box: stageSize)) }
+        let duration = Self.duration(kind, reduce: reduce)
         return { t in
-            AnyView(ZStack {
-                self.chrome(CelebrationSequenceView(kind: kind, elapsed: t, size: Self.box, reduceMotion: reduce,
-                                                    layer: .sprite, sprites: sprites))
+            let p = CelebrationStageLayout.progress(at: t, duration: duration, reduceMotion: reduce)
+            return AnyView(ZStack(alignment: .topLeading) {
+                Self.headerMock
+                Color.clear
+                    .frame(width: Self.box, height: Self.box)
+                    .background(Color.secondary.opacity(0.06))
+                    .clipShape(RoundedRectangle(cornerRadius: 12))
                     .overlay {
-                        CelebrationSequenceView(kind: kind, elapsed: t, size: Self.box, reduceMotion: reduce,
-                                                layer: .light, sprites: sprites)
+                        CelebrationSequenceView(kind: kind, elapsed: t, size: stageSize, reduceMotion: reduce,
+                                                layer: .both, sprites: sprites)
+                            .scaleEffect((1 + (CelebrationStageLayout.scale - 1) * p) / CelebrationStageLayout.scale)
+                            .offset(x: CelebrationStageLayout.travel.width * p,
+                                    y: CelebrationStageLayout.travel.height * p)
                     }
-            })
+            }
+            .frame(width: Self.headerWidth, alignment: .topLeading)
+            .offset(x: 18, y: Self.headerTop)
+            .frame(width: Self.headerSceneSize.width, height: Self.headerSceneSize.height, alignment: .topLeading))
+        }
+    }
+
+    static let headerWidth: CGFloat = 330
+    static let headerTop: CGFloat = 80
+    static let headerSceneSize = CGSize(width: 366, height: 300)
+
+    /// Grey bars where the header's info column, progress bar and the usage rows below would be.
+    private static var headerMock: some View {
+        let bar = Color.secondary.opacity(0.22)
+        return VStack(alignment: .leading, spacing: 0) {
+            HStack(alignment: .top, spacing: 12) {
+                Color.clear.frame(width: box, height: box)
+                VStack(alignment: .leading, spacing: 7) {
+                    bar.frame(width: 96, height: 11).clipShape(Capsule())
+                    bar.frame(width: 64, height: 9).clipShape(Capsule())
+                    bar.frame(width: 140, height: 8).clipShape(Capsule())
+                    bar.frame(width: 220, height: 6).clipShape(Capsule()).padding(.top, 6)
+                }
+                .padding(.top, 6)
+            }
+            Divider().padding(.vertical, 12)
+            VStack(alignment: .leading, spacing: 8) {
+                bar.frame(width: 180, height: 10).clipShape(Capsule())
+                bar.frame(width: 260, height: 8).clipShape(Capsule())
+                bar.frame(width: 230, height: 8).clipShape(Capsule())
+            }
+        }
+    }
+
+    private static func duration(_ kind: CelebrationPlayer.Kind, reduce: Bool) -> TimeInterval {
+        switch kind {
+        case .hatch(let p, _, _): HatchEffect.duration(p, reduceMotion: reduce)
+        case .evolve: EvolutionEffect.duration(reduceMotion: reduce)
+        case .graduate: GraduationEffect.duration(reduceMotion: reduce)
+        case .dittoReveal: DittoRevealEffect.duration(reduceMotion: reduce)
         }
     }
 
@@ -193,7 +244,6 @@ final class CelebrationRenderTests: XCTestCase {
         }
     }
 
-    private var headerCell: CGFloat { Self.box * CelebrationFX.overflow + 4 }
     private var petCell: CGFloat { Self.petSize * CelebrationFX.overflow }
 
     // MARK: Renders
@@ -216,7 +266,7 @@ final class CelebrationRenderTests: XCTestCase {
                     : HatchEffect.wobbleStarts(p).map { $0 + HatchEffect.wobbleLength / 6 } + [reveal - 0.1]
                 times += reduce ? [reveal, reveal + 0.2, duration] : [reveal, reveal + 0.12, reveal + 0.3, reveal + 0.55, duration]
                 try render(name: "hatch-\(rarity.rawValue)\(reduce ? "-reduced" : "")", duration: duration,
-                           strip: times, into: dir, cell: headerCell, background: Self.headerBackground,
+                           strip: times, into: dir, cell: Self.headerSceneSize.width, cellHeight: Self.headerSceneSize.height, background: Self.headerBackground,
                            gifScale: 1.25, scene: headerScene(kind, images: images, reduce: reduce))
                 if rarity == .legendary, !reduce {
                     // The busiest sequence (rays, motes, shards): a smaller GIF keeps it under ~600 KB.
@@ -238,7 +288,7 @@ final class CelebrationRenderTests: XCTestCase {
             let times: [TimeInterval] = reduce ? [0, 0.25, reveal, reveal + 0.2, duration]
                 : [0, 0.35, 0.7, 1.05, 1.45, 1.85, 2.2, 2.45, reveal, reveal + 0.12, reveal + 0.3, duration]
             try render(name: "evolve\(reduce ? "-reduced" : "")", duration: duration, strip: times, into: dir,
-                       cell: headerCell, background: Self.headerBackground, gifScale: 1.25,
+                       cell: Self.headerSceneSize.width, cellHeight: Self.headerSceneSize.height, background: Self.headerBackground, gifScale: 1.25,
                        scene: headerScene(kind, images: images, reduce: reduce))
         }
     }
@@ -254,7 +304,7 @@ final class CelebrationRenderTests: XCTestCase {
             let duration = DittoRevealEffect.duration(reduceMotion: reduce)
             try render(name: "ditto-reveal\(reduce ? "-reduced" : "")", duration: duration,
                        strip: [0, r * 0.6, r, r + 0.1, r + 0.3, r + 0.55, duration], into: dir,
-                       cell: headerCell, background: Self.headerBackground, gifScale: 1.25,
+                       cell: Self.headerSceneSize.width, cellHeight: Self.headerSceneSize.height, background: Self.headerBackground, gifScale: 1.25,
                        scene: headerScene(kind, images: images, reduce: reduce))
         }
     }
@@ -296,7 +346,7 @@ final class CelebrationRenderTests: XCTestCase {
             let times: [TimeInterval] = reduce ? [0, 0.3, 0.6, 0.9, duration]
                 : [0.1, 0.3, 0.42, 0.62, 0.85, 1.05, 1.25, 1.55, 1.85, 2.2, 2.88, 3.0, 3.3, duration]
             try render(name: "graduate\(reduce ? "-reduced" : "")", duration: duration, strip: times, into: dir,
-                       cell: headerCell, background: Self.headerBackground, gifScale: 1.25,
+                       cell: Self.headerSceneSize.width, cellHeight: Self.headerSceneSize.height, background: Self.headerBackground, gifScale: 1.25,
                        scene: headerScene(kind, images: images, reduce: reduce))
             if !reduce {
                 try render(name: "floating-graduate", duration: duration, strip: times, into: dir,

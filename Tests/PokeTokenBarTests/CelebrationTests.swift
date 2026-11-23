@@ -788,3 +788,19 @@ final class PixelGridTests: XCTestCase {
         XCTAssertEqual(PixelGrid.cellSize(box: 4), 0.5, "아주 작아도 0 이 되지 않는다")
     }
 }
+
+/// 헤더 무대: 칸에서 시작해 크게 펼쳐졌다가 끝나는 순간 칸으로 돌아온다 — 평소 모습과 이음매 없이.
+final class CelebrationStageLayoutTests: XCTestCase {
+    func testStageLeavesTheBoxAndComesBackByTheEnd() {
+        let d = 3.0
+        XCTAssertEqual(CelebrationStageLayout.progress(at: 0, duration: d, reduceMotion: false), 0, accuracy: 1e-9)
+        XCTAssertEqual(CelebrationStageLayout.progress(at: 1.5, duration: d, reduceMotion: false), 1, accuracy: 1e-9)
+        XCTAssertEqual(CelebrationStageLayout.progress(at: d, duration: d, reduceMotion: false), 0, accuracy: 1e-9,
+                       "끝 프레임은 칸 크기·칸 자리 — 재생이 끝나 평소 스프라이트로 바뀌어도 튀지 않는다")
+        XCTAssertGreaterThan(CelebrationStageLayout.scale, 1)
+        for t in stride(from: 0.0, through: d, by: 0.1) {
+            XCTAssertEqual(CelebrationStageLayout.progress(at: t, duration: d, reduceMotion: true), 0,
+                           "동작 줄이기면 칸에서 그대로")
+        }
+    }
+}

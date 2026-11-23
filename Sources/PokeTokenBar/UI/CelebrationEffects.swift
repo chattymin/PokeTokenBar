@@ -627,17 +627,18 @@ struct EvolutionEffectView<From: View, To: View>: View {
         let st = reduceMotion || !f.revealed ? 0 : FX.stretch(f.sinceReveal)
         let shake = reduceMotion ? .zero : FX.shake(f.sinceReveal, amplitude: Double(size) * 0.03)
         ZStack {
-            // 어두워진 무대 — 칸 안은 짙은 밤, 모서리 바깥으로만 풀린다(헤더에선 칸에 잘려 칸 전체가 밤이 되고,
-            // 바탕 없는 플로팅 펫에선 펫 둘레의 둥근 어둠이 된다). 예전엔 헤더 전체에 반투명 남색 카드를
-            // 덮었는데, 밝은 팝오버 위에선 탁한 회색 판으로 보이고 글자까지 흐려 싸 보였다.
-            let night = Color(red: 0.03, green: 0.05, blue: 0.16)
-            Circle()
-                .fill(RadialGradient(stops: [.init(color: night.opacity(0.95), location: 0),
-                                             .init(color: night.opacity(0.9), location: 0.7),
-                                             .init(color: night.opacity(0), location: 1)],
-                                     center: .center, startRadius: 0, endRadius: size * 0.72))
-                .frame(width: size * 1.45, height: size * 1.45)
-                .opacity(f.dim)
+            // 어두워진 무대 — 짙은 밤의 원판, 가장자리만 바둑판으로 풀린다(도트 그림판 — 매끈한 그라데이션
+            // 가장자리는 도트 연출 사이에서 혼자 튀었다). 헤더에선 무대에, 플로팅 펫에선 펫 둘레에 깔린다.
+            // 예전엔 헤더 전체에 반투명 남색 카드를 덮어 밝은 팝오버 위에서 탁한 회색 판으로 보였다.
+            PixelCanvas(box: size) { g in
+                let night = Color(red: 0.05, green: 0.07, blue: 0.19)
+                g.fill(x0: -0.74, y0: -0.74, x1: 0.74, y1: 0.74) { x, y, _, _ in
+                    let r = (x * x + y * y).squareRoot()
+                    return r < 0.6 ? (night, 1) : (r < 0.67 ? (night, 0.5) : (r < 0.73 ? (night, 0.25) : nil))
+                }
+            }
+            .frame(width: size * 1.5, height: size * 1.5)
+            .opacity(f.dim)
             // brightness(1) 은 알파를 지키고 색만 하얗게 민다 → 스프라이트 모양 그대로의 흰 실루엣 + 푸른 윤곽.
             ZStack {
                 from.brightness(f.whiteness).scaleEffect(f.oldScale).opacity(1 - swap)

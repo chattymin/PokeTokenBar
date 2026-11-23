@@ -701,10 +701,12 @@ struct CompanionHeader: View {
                     .background(Color.secondary.opacity(0.06))
                     .clipShape(RoundedRectangle(cornerRadius: 12))
                     .rotationEffect(.degrees(eggImminent && eggWiggle ? 5 : (eggImminent ? -5 : 0)))
-                    // 빛 층 — 둥근 칸에 잘리지 않게 clipShape 뒤에 얹어 칸 밖(약 2배)까지 터지게 한다.
+                    // 무대 — 재생 중엔 연출 전체(스프라이트 + 빛)가 칸에서 빠져나와 크게 펼쳐진다
+                    // (`CelebrationStageLayout`). 둥근 칸에 잘리지 않게 clipShape 뒤에 얹는다.
                     .overlay {
                         if let active = stage.active {
-                            CelebrationStageView(active: active, size: 76, layer: .light, spriteStore: spriteStore)
+                            CelebrationStageView(active: active, size: 76 * CelebrationStageLayout.scale, layer: .both,
+                                                 spriteStore: spriteStore, staged: true)
                         }
                     }
                     .overlay(alignment: .top) {
@@ -739,6 +741,8 @@ struct CompanionHeader: View {
                     .allowsHitTesting(concealment == nil)
                     // allowsHitTesting 은 포인터만 막는다 — 키보드(Tab·Space)·VoiceOver 로도 공개 전 도감을 못 열게 같이 끈다.
                     .disabled(concealment != nil)
+                    // 무대가 옆의 정보 칸·아래 줄보다 위에 그려지게(나중 형제가 위에 그려진다).
+                    .zIndex(stage.active == nil ? 0 : 1)
                 VStack(alignment: .leading, spacing: 4) {
                     HStack(spacing: 6) {
                         Text(store.displayName).font(.callout.weight(.semibold))
@@ -852,11 +856,12 @@ struct CompanionHeader: View {
 
     private var stage: CelebrationStage { store.celebrationStage }
 
-    /// 칸 내용 — 재생 중이면 연출의 스프라이트 층, 아니면 평소 모습(큐 맨 앞 연출의 직전 모습을 붙든다).
+    /// 칸 내용 — 재생 중이면 비운다(연출은 무대 오버레이가 칸 밖에서 그린다), 아니면 평소 모습(큐 맨 앞
+    /// 연출의 직전 모습을 붙든다).
     @ViewBuilder
     private var spriteBox: some View {
-        if let active = stage.active {
-            CelebrationStageView(active: active, size: 76, layer: .sprite, spriteStore: spriteStore)
+        if stage.active != nil {
+            Color.clear
         } else {
             let s = stage.idleSprite
             SpriteView(speciesID: s.speciesID, size: 76, bob: true, animated: true, shiny: s.shiny,

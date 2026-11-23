@@ -170,6 +170,8 @@ struct PopoverView: View {
                 ScrollView {
                     VStack(alignment: .leading, spacing: 12) {
                         CompanionHeader(store: companion) { nav.openDexEntry(collectionID: $0) }
+                            // 연출 무대가 아래 구역(사용량 헤더·한도)보다 위에 그려지게.
+                            .zIndex(companion.celebrationStage.active == nil ? 0 : 1)
                         Divider()
                         header
                         Divider()

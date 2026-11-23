@@ -288,6 +288,25 @@ extension CompanionStore {
     var floatingPetPlaysCelebrations: Bool { state.representativeSpeciesID == nil }
 }
 
+/// 헤더 무대 — 연출이 76pt 칸 안에서만 일어나면 아무리 공들여도 몇 픽셀 안에서 끝났다(사용자: "허접하다").
+/// 재생이 시작되면 알·포켓몬이 칸에서 빠져나와 헤더 가운데 쪽(공개 전엔 가려져 있는 정보 칸 위)으로 옮겨
+/// 1.5배로 커져 연출하고, 끝날 때 칸으로 돌아와 평소 모습과 이어진다. 동작 줄이기면 칸에서 그대로 한다.
+enum CelebrationStageLayout {
+    static let scale: CGFloat = 1.5
+    /// 칸 중심 → 무대 중심(pt). 왼쪽으로 넘치는 빛이 팝오버 가장자리에 잘리지 않을 만큼 오른쪽·아래로.
+    static let travel = CGSize(width: 96, height: 34)
+    static let enter: TimeInterval = 0.32
+    static let exit: TimeInterval = 0.38
+
+    /// 0 = 칸(평소 크기), 1 = 무대. 들어갈 땐 살짝 넘쳤다 자리 잡고, 끝나기 직전 칸으로 돌아온다.
+    static func progress(at t: TimeInterval, duration: TimeInterval, reduceMotion: Bool) -> Double {
+        guard !reduceMotion else { return 0 }
+        let enterP = CelebrationFX.easeOutBack(t / enter, overshoot: 1.1)
+        let exitP = 1 - CelebrationFX.smoothstep(duration - exit, duration, t)
+        return min(enterP, exitP)
+    }
+}
+
 /// 재생 중인 연출 한 장면을 화면에 그린다 — 헤더·플로팅 펫 공용. 스프라이트 뷰는 연출마다 한 번 만들고
 /// (TimelineView 가 매 프레임 클로저를 다시 돌려도 SpriteView.init 의 캐시 조회가 매 프레임 돌지 않게),
 /// 경과 시간은 공유 시작 시각에서 잰다 — 두 화면이 같은 순간을 그린다.
@@ -300,6 +319,8 @@ struct CelebrationStageView: View {
     /// 플로팅 펫의 프레임 하한(배터리 규율) — 헤더는 0.
     var minFrameDelay: TimeInterval = 0
     var bob = true
+    /// 헤더 무대(`CelebrationStageLayout`) — 칸에서 빠져나와 크게 연출하고 칸으로 돌아온다. `size` 는 무대 크기.
+    var staged = false
 
     var body: some View {
         // 빛 층도 스프라이트가 필요할 수 있다(부화의 윗뚜껑 = 알 그림) — 층마다 한 번씩만 만든다.
@@ -311,9 +332,15 @@ struct CelebrationStageView: View {
         let start = active.start
         let kind = active.kind
         let reduce = active.reduceMotion
+        let duration = active.duration
+        let staged = staged
         TimelineView(.animation) { context in
-            CelebrationSequenceView(kind: kind, elapsed: max(0, context.date.timeIntervalSince(start)), size: size,
-                                    reduceMotion: reduce, layer: layer, sprites: sprites)
+            let elapsed = max(0, context.date.timeIntervalSince(start))
+            let p = staged ? CelebrationStageLayout.progress(at: elapsed, duration: duration, reduceMotion: reduce) : 1
+            CelebrationSequenceView(kind: kind, elapsed: elapsed, size: size, reduceMotion: reduce, layer: layer,
+                                    sprites: sprites)
+                .scaleEffect(staged ? (1 + (CelebrationStageLayout.scale - 1) * p) / CelebrationStageLayout.scale : 1)
+                .offset(x: CelebrationStageLayout.travel.width * p, y: CelebrationStageLayout.travel.height * p)
         }
     }
 }
