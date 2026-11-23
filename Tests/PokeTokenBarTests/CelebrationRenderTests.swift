@@ -159,16 +159,12 @@ final class CelebrationRenderTests: XCTestCase {
     typealias Sprite = CelebrationPlayer.Sprite
 
     /// The popover header: the sprite layer inside the clipped 76pt box, the light layer overflowing it
-    /// (as `CompanionHeader` composes them), over the popover's light background. Evolution dims the header.
+    /// (as `CompanionHeader` composes them), over the popover's light background.
     private func headerScene(_ kind: CelebrationPlayer.Kind, images: [Sprite: NSImage],
                              reduce: Bool) -> (TimeInterval) -> AnyView {
         let sprites = images.mapValues { AnyView(self.fitted($0)) }
         return { t in
-            var dim = 0.0
-            if case .evolve = kind { dim = EvolutionEffect.frame(at: t, reduceMotion: reduce).dim }
-            return AnyView(ZStack {
-                RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.05, green: 0.07, blue: 0.18).opacity(0.6 * dim))
-                    .frame(width: Self.box * 1.9, height: Self.box * 1.5)
+            AnyView(ZStack {
                 self.chrome(CelebrationSequenceView(kind: kind, elapsed: t, size: Self.box, reduceMotion: reduce,
                                                     layer: .sprite, sprites: sprites))
                     .overlay {

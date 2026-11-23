@@ -836,17 +836,6 @@ struct CompanionHeader: View {
         .task(id: store.currentSpeciesID) {
             if store.hasActive, let id = store.currentSpeciesID { await store.loadPokemonDetails(speciesID: id) }
         }
-        // 진화 중엔 무대가 어두워진다(BW 진화 신) — 헤더 뒤 전체를 덮는 어둠. 시간의 함수라 TimelineView 로.
-        .background {
-            if let active = stage.active, case .evolve = active.kind {
-                TimelineView(.animation) { context in
-                    let f = EvolutionEffect.frame(at: context.date.timeIntervalSince(active.start),
-                                                  reduceMotion: active.reduceMotion)
-                    RoundedRectangle(cornerRadius: 12).fill(Color(red: 0.05, green: 0.07, blue: 0.18).opacity(0.6 * f.dim)).padding(-6)
-                }
-                .allowsHitTesting(false)
-            }
-        }
         .onAppear {
             stage.attach(viewerID)
             showCandyXPIfNeeded()

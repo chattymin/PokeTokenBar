@@ -65,17 +65,32 @@ enum CelebrationFX {
         return 1 - 0.4 * exp(-5.5 * t) * cos(10 * t)
     }
 
+    /// 튀어나올 때의 찌그러짐 — 세로로 늘었다(+) 납작해졌다(−) 가라앉는다. 가로는 반대로(부피 보존 인상).
+    static func stretch(_ t: Double) -> Double {
+        guard t > 0 else { return 0 }
+        return 0.2 * exp(-7 * t) * sin(13 * t + 0.4)
+    }
+
+    /// 터지는 순간의 화면 흔들림(칸 단위 변위) — 짧게, 빠르게 줄어든다. 결정적(시간의 함수).
+    static func shake(_ t: Double, amplitude: Double, length: Double = 0.3) -> CGSize {
+        guard t >= 0, t < length, amplitude > 0 else { return .zero }
+        let decay = pow(1 - t / length, 2)
+        return CGSize(width: amplitude * decay * sin(t * 97), height: amplitude * 0.6 * decay * cos(t * 73))
+    }
+
     // MARK: 입자 계
 
     /// 중심에서 방사형으로 터지는 반짝이(공기 저항으로 감속, 깜빡이며 사라짐).
     static func burst(seed: UInt64, count: Int, at t: Double, reach: Double, life: Double = 0.9,
-                      size: ClosedRange<Double> = 0.07...0.13, shape: Particle.Shape = .sparkle) -> [Particle] {
+                      size: ClosedRange<Double> = 0.07...0.13, shape: Particle.Shape = .sparkle,
+                      inner: Double = 0) -> [Particle] {
         guard t >= 0, t <= life else { return [] }
         var rng = Random(seed: seed)
         return (0..<count).map { i in
             let angle = Double(i) / Double(count) * 2 * .pi + rng.range(-0.25, 0.25)
             let dist = min(reach, particleBound - 0.05) * rng.range(0.55, 1.0)
-            let d = dist * easeOutCubic(t / (life * 0.75))
+            // `inner` 에서 출발 — 가운데(막 나온 포켓몬) 위에 반짝이가 뭉쳐 덮지 않게.
+            let d = min(inner, dist) + (dist - min(inner, dist)) * easeOutCubic(t / (life * 0.75))
             let sz = rng.range(size.lowerBound, size.upperBound)
             let twinkle = 0.75 + 0.25 * sin(t * 26 + Double(i))
             let fade = 1 - smoothstep(life * 0.45, life, t)
@@ -229,23 +244,107 @@ extension GraphicsContext {
                     center: c, startRadius: 0, endRadius: r))
     }
 
-    /// 네 갈래 반짝이 — 색 번짐 + 흰 심지. 크기는 지름(칸 단위).
+    /// 네 갈래 반짝이 — 가늘고 긴 팔의 흰 별 + 등급색 테두리 + 아주 작은 번짐. 크기는 지름(칸 단위).
+    ///
+    /// 예전엔 큰 색 번짐 위에 뭉툭한 별이라 밝은 팝오버에서 "얼룩"으로 보였다. 본가 반짝이처럼 팔은 길고
+    /// 가늘게, 똑바로 세운다(돌리지 않는다) — 테두리가 있어 흰 바탕에서도 모양이 선다.
     func sparkle(_ space: FXSpace, _ p: CelebrationFX.Particle, color: Color) {
         guard p.opacity > 0.01 else { return }
-        glow(space, x: p.x, y: p.y, radius: p.size * 0.9, color: color, opacity: p.opacity * 0.7)
+        glow(space, x: p.x, y: p.y, radius: p.size * 0.5, color: color, opacity: p.opacity * 0.45)
         let c = space.point(p.x, p.y)
-        let r = space.length(p.size / 2)
+        let r = space.length(p.size / 2) * 1.25
         var path = Path()
         for k in 0..<8 {
-            let a = Double(k) * .pi / 4 + p.rotation * 0.2
-            let len = k.isMultiple(of: 2) ? r : r * 0.28
+            let a = Double(k) * .pi / 4 - .pi / 2
+            let len = k.isMultiple(of: 2) ? r : r * 0.17
             let pt = CGPoint(x: c.x + len * CGFloat(cos(a)), y: c.y + len * CGFloat(sin(a)))
             if k == 0 { path.move(to: pt) } else { path.addLine(to: pt) }
         }
         path.closeSubpath()
         var ctx = self
         ctx.opacity = p.opacity
+        ctx.stroke(path, with: .color(color), style: StrokeStyle(lineWidth: max(0.7, r * 0.22), lineJoin: .round))
         ctx.fill(path, with: .color(.white))
+    }
+
+    /// 또렷한 고리(충격파) — 등급색 띠 위에 흰 심지. 번진 띠보다 "터졌다"가 분명하다.
+    func ring(_ space: FXSpace, x: Double = 0, y: Double = 0, radius: Double, width: Double, color: Color,
+              opacity: Double) {
+        guard opacity > 0.001, radius > 0 else { return }
+        let c = space.point(x, y)
+        let r = space.length(radius)
+        let circle = Path(ellipseIn: CGRect(x: c.x - r, y: c.y - r, width: 2 * r, height: 2 * r))
+        var ctx = self
+        ctx.opacity = opacity
+        ctx.stroke(circle, with: .color(color), lineWidth: space.length(width))
+        ctx.stroke(circle, with: .color(.white.opacity(0.9)), lineWidth: space.length(width) * 0.35)
+    }
+
+    /// 한 점에서 뻗는 빛줄기 — 뿌리는 가늘고 끝으로 갈수록 넓어지며 옅어진다(금 사이로 새는 빛 등).
+    func beam(_ space: FXSpace, x: Double, y: Double, angle: Double, length: Double, width: Double, color: Color,
+              opacity: Double) {
+        guard opacity > 0.001, length > 0 else { return }
+        let o = space.point(x, y)
+        let l = space.length(length), w = space.length(width) / 2
+        let d = CGPoint(x: CGFloat(cos(angle)), y: CGFloat(sin(angle)))
+        let n = CGPoint(x: -d.y, y: d.x)
+        let end = CGPoint(x: o.x + d.x * l, y: o.y + d.y * l)
+        var path = Path()
+        path.move(to: CGPoint(x: o.x + n.x * w * 0.12, y: o.y + n.y * w * 0.12))
+        path.addLine(to: CGPoint(x: end.x + n.x * w, y: end.y + n.y * w))
+        path.addLine(to: CGPoint(x: end.x - n.x * w, y: end.y - n.y * w))
+        path.addLine(to: CGPoint(x: o.x - n.x * w * 0.12, y: o.y - n.y * w * 0.12))
+        path.closeSubpath()
+        var ctx = self
+        ctx.opacity = opacity
+        ctx.fill(path, with: .linearGradient(Gradient(stops: [
+            .init(color: .white, location: 0), .init(color: color, location: 0.25),
+            .init(color: color.opacity(0), location: 1)]), startPoint: o, endPoint: end))
+    }
+
+    /// 중심에서 사방으로 뻗어 나가는 속도선 — 폭발의 "팡". `u` 는 0…1 진행도.
+    /// 머리는 감속하며 바깥으로, 꼬리는 따라붙어 선이 점점 짧아진다. 반경은 칸 단위.
+    func speedLines(_ space: FXSpace, seed: UInt64, count: Int, progress u: Double, from inner: Double,
+                    reach: Double, width: Double, color: Color, opacity: Double) {
+        guard u >= 0, u < 1, opacity > 0.001 else { return }
+        var rng = CelebrationFX.Random(seed: seed)
+        let fade = opacity * pow(1 - u, 1.3)
+        for i in 0..<count {
+            let a = Double(i) / Double(count) * 2 * .pi + rng.range(-0.18, 0.18)
+            let len = rng.range(0.6, 1)
+            let head = inner + (reach - inner) * len * CelebrationFX.easeOutCubic(u * 1.15)
+            let tail = inner + (head - inner) * (0.2 + 0.7 * u)
+            let w = width * rng.range(0.7, 1.2)
+            let dir = CGPoint(x: CGFloat(cos(a)), y: CGFloat(sin(a)))
+            let n = CGPoint(x: -dir.y, y: dir.x)
+            let h = space.point(head * cos(a), head * sin(a)), t = space.point(tail * cos(a), tail * sin(a))
+            let hw = space.length(w) / 2
+            var path = Path()
+            path.move(to: t)
+            path.addLine(to: CGPoint(x: h.x + n.x * hw, y: h.y + n.y * hw))
+            path.addLine(to: CGPoint(x: h.x + dir.x * hw * 2, y: h.y + dir.y * hw * 2))
+            path.addLine(to: CGPoint(x: h.x - n.x * hw, y: h.y - n.y * hw))
+            path.closeSubpath()
+            var ctx = self
+            ctx.opacity = fade
+            ctx.fill(path, with: .linearGradient(Gradient(colors: [color.opacity(0), color, .white]),
+                                                 startPoint: t, endPoint: h))
+        }
+    }
+
+    /// 움직이는 빛 알갱이 — 진행 방향 반대로 꼬리를 끄는 또렷한 점(흐린 원 대신).
+    func streak(_ space: FXSpace, x: Double, y: Double, tailX: Double, tailY: Double, size: Double, color: Color,
+                opacity: Double) {
+        guard opacity > 0.01 else { return }
+        let h = space.point(x, y), t = space.point(tailX, tailY)
+        var ctx = self
+        ctx.opacity = opacity
+        var line = Path()
+        line.move(to: t); line.addLine(to: h)
+        ctx.stroke(line, with: .linearGradient(Gradient(colors: [color.opacity(0), color]), startPoint: t, endPoint: h),
+                   style: StrokeStyle(lineWidth: space.length(size * 0.55), lineCap: .round))
+        let r = space.length(size * 0.32)
+        ctx.fill(Path(ellipseIn: CGRect(x: h.x - r, y: h.y - r, width: 2 * r, height: 2 * r)), with: .color(.white))
     }
 
     /// 다섯 갈래 노란 별(포획 확정 "딸깍" — 본가의 별 튀김).
@@ -288,8 +387,25 @@ extension GraphicsContext {
         path.closeSubpath()
         var ctx = self
         ctx.opacity = p.opacity
+        // 크림색 조각에 옅은 결 — 굵은 검은 테두리는 색종이(삼각형 꽃가루)처럼 보여 껍질로 안 읽혔다.
         ctx.fill(path, with: .color(seed % 3 == 0 ? EggPalette.spot : EggPalette.shell))
-        ctx.stroke(path, with: .color(EggPalette.outline), lineWidth: max(0.8, space.unit / 70))
+        ctx.stroke(path, with: .color(EggPalette.shade), lineWidth: max(0.6, space.unit / 120))
+    }
+}
+
+extension View {
+    /// 스프라이트 모양 그대로의 또렷한 테두리(흰 실루엣의 푸른 윤곽, 붉은 에너지의 윤곽 등).
+    ///
+    /// 번진 그림자(`shadow(radius:)`)는 픽셀 스프라이트 둘레에 흐린 얼룩을 남겨 싸 보였다. 반경 0 그림자를
+    /// 네 방향으로 겹치면 알파 모양을 `width` 만큼 넓힌 선명한 윤곽이 된다 — 뷰를 복제하지 않으므로 움직이는
+    /// GIF 스프라이트가 여러 벌 로드되지 않는다. `width` 가 0 이면 그림자가 뒤에 숨어 아무것도 안 보인다
+    /// (분기하지 않는다 — 분기하면 뷰 정체가 바뀌어 스프라이트 상태가 초기화된다).
+    func celebrationRim(_ color: Color, width: CGFloat) -> some View {
+        compositingGroup()
+            .shadow(color: color, radius: 0, x: width, y: 0)
+            .shadow(color: color, radius: 0, x: -width, y: 0)
+            .shadow(color: color, radius: 0, x: 0, y: width)
+            .shadow(color: color, radius: 0, x: 0, y: -width)
     }
 }
 
