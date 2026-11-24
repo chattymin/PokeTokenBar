@@ -24,6 +24,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
     private var floatingPet: FloatingPetController!
+    private var battleWindow: BattleWindowController?
     private let navigation = PopoverNavigation()
 
     // 메뉴바 캐릭터 애니메이션 — 단일 타이머로 프레임 순환.
@@ -105,6 +106,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         }
         store = UsageStore()
         companion = CompanionStore()
+        navigation.onOpenBattle = { [weak self] in self?.openBattle() }
         Task { await companion.preparePokemonProfiles() }
         updater = UpdateChecker()
         store.localizationLanguage = companion.language   // 알림 현지화용 미러 시드
@@ -619,11 +621,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         case .refresh: Task { await store.refresh() }
         case .openDex: showPopover { $0.openRepresentativeDex() }
         case .openSettings: showPopover { $0.showSettings = true }
+        case .openBattle: openBattle()
         case .toggleFloatingPet: store.floatingPetEnabled.toggle()
         case .toggleBackView: store.alwaysFacesBack.toggle()
         case .quit: NSApp.terminate(nil)
         case nil: break
         }
+    }
+
+    private func openBattle() {
+        if popover.isShown { popover.performClose(nil) }
+        if battleWindow == nil { battleWindow = BattleWindowController(store: companion) }
+        battleWindow?.show()
     }
 
     @objc private func togglePopover() {

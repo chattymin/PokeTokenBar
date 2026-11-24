@@ -52,6 +52,8 @@ final class PopoverNavigation {
     /// 설정을 열 때 고급 섹션을 펼친 채로 시작할지. 세션 키 행이 접힌 disclosure 안에 살아서,
     /// 그냥 설정만 열면 "만료됐다"를 보고 들어온 사용자가 고칠 입력란을 못 찾는다.
     var expandAdvancedOnOpen = false
+    /// Opens the LAN battle window. It is a window, not a popover screen, so AppDelegate owns it.
+    @ObservationIgnored var onOpenBattle: () -> Void = {}
 
     func reset() {
         showSettings = false
@@ -1139,6 +1141,14 @@ struct PopoverView: View {
             .buttonStyle(.borderless)
             .help(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
             .accessibilityLabel(store.floatingPetEnabled ? l.floatingPetHideLabel : l.floatingPetEnableLabel)
+            Button {
+                nav.onOpenBattle()
+            } label: {
+                Image(systemName: "gamecontroller")
+            }
+            .buttonStyle(.borderless)
+            .help(l.battleMenu)
+            .accessibilityLabel(l.battleMenu)
             Button {
                 nav.showSettings = true
             } label: {
