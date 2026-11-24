@@ -168,6 +168,7 @@ enum SaveTransfer {
         // launch. Capped far above any real count: no item is dropped.
         s.inventory = s.inventory.mapValues { min(max(0, $0), maxItemCount) }
         s.unseenTreasures = s.unseenTreasures.mapValues { min(max(0, $0), maxItemCount) }
+        s.candyCrumbs = min(max(0, s.candyCrumbs), maxItemCount)
         s.claimedTodayTokensByProvider = s.claimedTodayTokensByProvider?.reduce(into: [:]) { result, entry in
             result[entry.key] = clampToken(entry.value)
         }

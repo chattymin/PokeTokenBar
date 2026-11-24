@@ -80,6 +80,9 @@ final class CompanionStore {
     private(set) var candyFeedbackAmount = 0
     /// The candies of that use the Shock Drive recharged, shown beside the "+XP".
     private(set) var candyFeedbackRecharged = 0
+    /// The crumbs that use left, and the Rare Candies they made, shown beside the "+XP".
+    private(set) var candyFeedbackCrumbs = 0
+    private(set) var candyFeedbackCrumbCandies = 0
     /// "+XP" 표시 1회성 보장 — CompanionHeader 가 재생 후 호출한다. 소비하지 않으면 다른 탭에 갔다
     /// 홈으로 재진입할 때(CompanionHeader 재마운트) @State 가 초기화돼 같은 값이 다시 떠오른다(회귀).
     func consumeCandyFeedback() { candyFeedbackAmount = 0 }
@@ -2406,6 +2409,11 @@ final class CompanionStore {
         return owned.filter { !$0.kind.isPassive } + owned.filter { $0.kind.isPassive }
     }
 
+    /// The Bag's cards: the Rare Candy's stays, at 0, while crumbs wait for the next one.
+    var bagItems: [(kind: ItemKind, count: Int)] {
+        state.candyCrumbs > 0 && rareCandyCount == 0 ? [(.rareCandy, 0)] + ownedItems : ownedItems
+    }
+
     /// 이상한 사탕 사용 가능 — 활성 포켓몬 + 라인 로딩 완료 + 재고>0.
     /// 라인 미로딩(재시작 직후·오프라인)이면 비활성 — 사탕이 진화 없이 적립만 되는 것 방지.
     var canUseRareCandy: Bool { maxRareCandyUseCount > 0 }
@@ -2450,6 +2458,7 @@ final class CompanionStore {
         let graduates: Bool
         let carryoverXP: Int
         let discardedXP: Int
+        var crumbs: Int { discardedXP / RareCandy.crumbXP }
     }
 
     func planRareCandyUse(count requested: Int) -> RareCandyUsePlan? {
@@ -2496,13 +2505,28 @@ final class CompanionStore {
         state.inventory[ItemKind.rareCandy.rawValue] = rareCandyCount - (consumed - recharged)
         state.active?.raising?.candiesUsed += consumed
         candyFeedbackRecharged = recharged
+        candyFeedbackCrumbs = 0
+        candyFeedbackCrumbCandies = 0
         let beforeStage = state.active?.stageIndex ?? 0
         // 진화 안 될 때(부분 진행)도 즉시 "+XP" 피드백 — CompanionHeader 가 연출과 별개로 표시.
         candyFeedbackAmount = xp
         candyFeedbackSeq += 1
         // Saves inventory and growth together. Candy XP is not token usage: no growth item multiplies it twice.
         applyUsage(xp, isTokenUsage: false)
-        if state.active == nil { return .graduated }
+        if state.active == nil {
+            if preview.crumbs > 0 {
+                let total = state.candyCrumbs + preview.crumbs
+                let made = total / RareCandy.crumbsPerCandy
+                state.candyCrumbs = total % RareCandy.crumbsPerCandy
+                if made > 0 { _ = addRareCandies(made) }
+                candyFeedbackCrumbs = preview.crumbs
+                candyFeedbackCrumbCandies = made
+                AppLog.write("rare candy: +\(preview.crumbs) crumbs (\(state.candyCrumbs)/\(RareCandy.crumbsPerCandy))"
+                             + (made > 0 ? ", +\(made) rare candy" : ""))
+                save()
+            }
+            return .graduated
+        }
         if state.active!.stageIndex > beforeStage { return .evolved }
         return .progressed
     }

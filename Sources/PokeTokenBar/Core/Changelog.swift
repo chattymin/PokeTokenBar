@@ -67,6 +67,17 @@ enum Changelog {
 
     static let days: [ChangelogDay] = [
         ChangelogDay(date: "2026-11-24", entries: [
+            .new("2026-11-24-candy-crumbs") { l in
+                let candy = l.itemName(.rareCandy)
+                return l.t("\(candy)으로 졸업할 때 사라지는 경험치 10M마다 사탕 부스러기가 1개 남아요. 부스러기 100개가 모이면 \(candy) 1개가 돼요. 가방의 사탕 카드에서 개수를 볼 수 있어요.",
+                           "When a \(candy) goes past a graduation, the lost EXP leaves crumbs, one per 10M. 100 crumbs make a \(candy). Count them on its card in your Bag.",
+                           "\(candy)で卒業するとき、失われる経験値10Mごとにアメのかけらが1個残ります。かけらが100個たまると\(candy)1個になります。バッグのアメのカードで数を確認できます。",
+                           "Cuando un \(candy) se pasa al graduarse, la EXP perdida deja migajas, una por cada 10M. 100 migajas forman un \(candy). Cuéntalas en su tarjeta de tu bolsa.",
+                           "Quand un \(candy) dépasse à la fin de la croissance, l'EXP perdue laisse des miettes, une par tranche de 10M. 100 miettes font un \(candy). Le compte est sur sa carte, dans ton sac.",
+                           "Quando um \(candy) passa da formatura, a EXP perdida deixa migalhas, uma a cada 10M. 100 migalhas formam um \(candy). Conte-as no cartão dele na sua bolsa.",
+                           "Geht ein \(candy) über den Trainingsabschluss hinaus, hinterlässt die verlorene EP Krümel, einen pro 10M. 100 Krümel ergeben ein \(candy). Du siehst sie auf seiner Karte im Beutel.",
+                           "Если \"\(candy)\" при выпуске даёт лишний опыт, он оставляет крошки, по одной за каждые 10M. 100 крошек дают одну \"\(candy)\". Их счёт виден на её карточке в сумке.")
+            },
             .new("2026-11-24-battle-forms-screen", { $0.t("도감에 전투 형태 화면이 생겼어요. 메가·원시회귀·거다이맥스가 모두 나오고 얻은 형태는 색으로 보여요. 얻은 형태만 남기는 필터도 있고, 누르면 그 형태로 도감 페이지가 열려요.",
                                                           "The Pokédex has a Battle forms screen: every Mega, Primal and Gigantamax form, the ones you won in color, with a filter to keep yours only. Click one to open its page in that form.",
                                                           "図鑑にバトルのすがたの画面ができました。メガ・ゲンシカイキ・キョダイマックスがすべて並び、手に入れたすがたはカラーで出ます。手に入れたものだけにするフィルターもあり、クリックするとそのすがたで図鑑のページが開きます。",
