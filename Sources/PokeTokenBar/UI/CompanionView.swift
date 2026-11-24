@@ -1480,6 +1480,8 @@ struct CollectionView: View {
             PokemonDetailView(store: store, species: species, onBack: {
                 // A page opened from another's evolution family goes back to that one first.
                 if nav.returnToPreviousDexPage() { return }
+                // One opened from the Battle Forms screen goes back to it.
+                if nav.returnToBattleForms() { return }
                 // Back to the log would leave it for the next switch to the grid.
                 if !nav.showingCollectionLog { dexReturnAnchor = id }
                 nav.dexDetailCollectionID = nil
@@ -1499,6 +1501,10 @@ struct CollectionView: View {
                     // The costumed Pokémon, a lot each month (the owner, 2026-11-13).
                     CircleIconButton(systemImage: "theatermasks.fill", help: store.l.costumesButtonHint) {
                         nav.showingCostumes = true
+                    }
+                    // Every Mega and Gigantamax won, like the costumes (the owner, 2026-11-24).
+                    CircleIconButton(systemImage: "atom", help: store.l.battleFormsButtonHint) {
+                        nav.showingBattleForms = true
                     }
                 }
 

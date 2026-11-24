@@ -69,4 +69,27 @@ enum BattleForms {
 
     /// The weekly dungeon's: every Gigantamax and Primal form, and the legendary and mythical Megas.
     static let weekly: [BattleForm] = all.filter { $0.kind != .mega || $0.isLegendary }
+
+    /// The Battle Forms screen's sections, Megas, Primals then Gigantamax forms in the catalog's order (the owner,
+    /// 2026-11-24: to see every Mega and Gigantamax won), and Giovanni's armor once won, never shown before. Each
+    /// counts the won forms of its whole catalog; `wonOnly` keeps the won forms alone and drops a section with none.
+    static func sections(won: Set<String>, wonOnly: Bool) -> [BattleFormSection] {
+        let kinds: [(BattleFormKind, [BattleForm])] = [BattleFormKind.mega, .primal, .gigantamax].map { kind in
+            (kind, all.filter { $0.kind == kind })
+        } + [(.armor, extras.filter { won.contains($0.key) })]
+        return kinds.compactMap { kind, forms in
+            let have = forms.filter { won.contains($0.key) }
+            let shown = wonOnly ? have : forms
+            guard !shown.isEmpty else { return nil }
+            return BattleFormSection(kind: kind, forms: shown, won: have.count, total: forms.count)
+        }
+    }
+}
+
+/// One kind's forms on the Battle Forms screen (`BattleForms.sections`): `won` of its `total`.
+struct BattleFormSection: Equatable, Sendable {
+    let kind: BattleFormKind
+    let forms: [BattleForm]
+    let won: Int
+    let total: Int
 }

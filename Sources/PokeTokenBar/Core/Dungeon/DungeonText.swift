@@ -1399,21 +1399,14 @@ extension L {
     // MARK: Battle forms
 
     /// " X", " Y", " Z" for the Megas that come in two or three.
-    private func megaSuffix(_ form: BattleForm) -> String {
+    func megaSuffix(_ form: BattleForm) -> String {
         for letter in ["x", "y", "z"] where form.form.rawValue.hasSuffix("mega-\(letter)") { return " " + letter.uppercased() }
         return ""
     }
 
     /// A battle form alone, in a picker beside the species' other forms ("Mega X", "Gigantamax").
     func battleFormLabel(_ form: BattleForm) -> String {
-        let x = megaSuffix(form)
-        switch form.kind {
-        case .mega: return t("메가\(x)", "Mega\(x)", "メガ\(x)", "Mega\(x)", "Méga\(x)", "Mega\(x)", "Mega\(x)", "Мега\(x)")
-        case .gigantamax:
-            return t("거다이맥스", "Gigantamax", "キョダイマックス", "Gigamax", "Gigamax", "Gigantamax", "Gigadynamax", "Гигантамакс")
-        case .primal: return t("원시회귀", "Primal", "ゲンシカイキ", "Primigenio", "Primo", "Primitivo", "Proto", "Первобытный")
-        case .armor: return t("아머", "Armor", "アーマー", "Armadura", "Armure", "Armadura", "Rüstung", "Броня")
-        }
+        form.kind == .mega ? battleFormKindName(.mega) + megaSuffix(form) : battleFormKindName(form.kind)
     }
 
     /// A battle form's own name, the species' in it ("Mega Charizard X", "Gigantamax Pikachu", "Primal Kyogre").
@@ -1483,6 +1476,40 @@ extension L {
     var battleFormBadge: String {
         t("전투 형태", "Battle form", "バトルのすがた", "Forma de combate", "Forme de combat", "Forma de batalha", "Kampfform",
           "Боевая форма")
+    }
+    /// A kind of battle form, a Battle Forms screen's section and ring ("Mega", "Gigantamax", "Primal").
+    func battleFormKindName(_ kind: BattleFormKind) -> String {
+        switch kind {
+        case .mega: t("메가", "Mega", "メガ", "Mega", "Méga", "Mega", "Mega", "Мега")
+        case .gigantamax: t("거다이맥스", "Gigantamax", "キョダイマックス", "Gigamax", "Gigamax", "Gigantamax", "Gigadynamax", "Гигантамакс")
+        case .primal: t("원시회귀", "Primal", "ゲンシカイキ", "Primigenio", "Primo", "Primitivo", "Proto", "Первобытный")
+        case .armor: t("아머", "Armor", "アーマー", "Armadura", "Armure", "Armadura", "Rüstung", "Броня")
+        }
+    }
+    var battleFormsButtonHint: String {
+        t("전투 형태: 던전에서 얻은 메가·거다이맥스·원시회귀", "Battle forms: the Megas, Gigantamax and Primal forms won in the dungeons",
+          "バトルのすがた：ダンジョンで手に入れたメガ・キョダイマックス・ゲンシカイキ",
+          "Formas de combate: las Mega, Gigamax y Primigenias ganadas en las mazmorras",
+          "Formes de combat : les Méga, Gigamax et Primo gagnées en donjon",
+          "Formas de batalha: as Mega, Gigantamax e Primitivas ganhas nas masmorras",
+          "Kampfformen: die in Dungeons gewonnenen Mega-, Gigadynamax- und Proto-Formen",
+          "Боевые формы: мега, гигантамакс и первобытные формы, добытые в подземельях")
+    }
+    var battleFormsWonOnly: String {
+        t("얻은 형태만", "Won forms only", "手に入れたすがただけ", "Solo las formas ganadas", "Seulement les formes gagnées",
+          "Só as formas ganhas", "Nur gewonnene Formen", "Только добытые формы")
+    }
+    /// The Battle Forms screen's filter with nothing won yet: where they are won.
+    var battleFormsNoneWon: String {
+        let daily = dungeonName(.daily), weekly = dungeonName(.weekly)
+        return t("아직 얻은 형태가 없어요. 메가는 \(daily), 거다이맥스·원시회귀·전설의 메가는 \(weekly)에서 얻어요.",
+                 "No form won yet: the Megas are won in the \(daily), the Gigantamax, Primal and legendary Mega forms in the \(weekly).",
+                 "まだ手に入れたすがたはありません。メガは\(daily)、キョダイマックス・ゲンシカイキ・伝説のメガは\(weekly)で手に入ります。",
+                 "Aún no has ganado ninguna forma: las Mega se ganan en la \(daily), las Gigamax, Primigenias y Mega legendarias en la \(weekly).",
+                 "Aucune forme gagnée pour l'instant : les Méga se gagnent au \(daily), les Gigamax, les Primo et les Méga légendaires au \(weekly).",
+                 "Nenhuma forma ganha ainda: as Mega se ganham na \(daily), as Gigantamax, Primitivas e Mega lendárias na \(weekly).",
+                 "Noch keine Form gewonnen: Mega-Formen gibt es im \(daily), Gigadynamax-, Proto- und legendäre Mega-Formen im \(weekly).",
+                 "Пока нет добытых форм. Мега: \(daily). Гигантамакс, первобытные и легендарные мега: \(weekly).")
     }
     var battleFormsTitle: String {
         t("전투 형태", "Battle forms", "バトルのすがた", "Formas de combate", "Formes de combat", "Formas de batalha",
