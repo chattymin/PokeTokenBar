@@ -66,6 +66,16 @@ enum Changelog {
     }
 
     static let days: [ChangelogDay] = [
+        ChangelogDay(date: "2026-11-24", entries: [
+            .new("2026-11-24-battle-forms-screen", { $0.t("도감에 전투 형태 화면이 생겼어요. 메가·원시회귀·거다이맥스가 모두 나오고 얻은 형태는 색으로 보여요. 얻은 형태만 남기는 필터도 있고, 누르면 그 형태로 도감 페이지가 열려요.",
+                                                          "The Pokédex has a Battle forms screen: every Mega, Primal and Gigantamax form, the ones you won in color, with a filter to keep yours only. Click one to open its page in that form.",
+                                                          "図鑑にバトルのすがたの画面ができました。メガ・ゲンシカイキ・キョダイマックスがすべて並び、手に入れたすがたはカラーで出ます。手に入れたものだけにするフィルターもあり、クリックするとそのすがたで図鑑のページが開きます。",
+                                                          "La Pokédex tiene una pantalla de Formas de combate: todas las Mega, Primigenias y Gigamax, las que has ganado en color, con un filtro para dejar solo las tuyas. Haz clic en una para abrir su página en esa forma.",
+                                                          "Le Pokédex a un écran Formes de combat : toutes les Méga, Primo et Gigamax, celles que tu as gagnées en couleur, avec un filtre pour ne garder que les tiennes. Un clic ouvre sa fiche dans cette forme.",
+                                                          "A Pokédex tem uma tela de Formas de batalha: todas as Mega, Primitivas e Gigantamax, as que você ganhou em cores, com um filtro para deixar só as suas. Clique em uma para abrir a página dela nessa forma.",
+                                                          "Der Pokédex hat einen Bildschirm für Kampfformen: alle Mega-, Proto- und Gigadynamax-Formen, deine gewonnenen in Farbe, mit einem Filter nur für deine. Ein Klick öffnet die Seite in dieser Form.",
+                                                          "В покедексе появился экран боевых форм: все мега, первобытные и гигантамакс формы, добытые показаны в цвете, есть фильтр, чтобы оставить только свои. Щелчок открывает страницу в этой форме.") }),
+        ]),
         ChangelogDay(date: "2026-11-20", entries: [
             .improved("2026-11-20-capsule-nature", { $0.t("왕관 고르기 목록에 포켓몬마다 IV 합계 아래 성격이 나오고, 고른 포켓몬에는 성격의 효과(+공격 −스피드 등)도 나와요.",
                                                           "The Bottle Caps' list shows each Pokémon's nature under its IV total, and the Pokémon picked shows the nature's effect (+Atk −Spe and so on).",

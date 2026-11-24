@@ -132,6 +132,9 @@ final class PopoverNavigation {
     var showingCollectionStats = false
     /// The costumed Pokémon (`CostumeCollectionScreen`).
     var showingCostumes = false
+    /// The battle forms (`BattleFormsScreen`), and its filter of the won ones, kept across openings.
+    var showingBattleForms = false
+    var battleFormsWonOnly = false
     /// Every expedition that ended (#133), and one of them opened on its journal (`endedAt` names it).
     var showingRunHistory = false
     var pastRun: Date?
@@ -154,7 +157,28 @@ final class PopoverNavigation {
     /// on screen: leaving the tab, switching segment, or covering it with Settings/Recap drops it —
     /// the same lifetime it had as `CollectionView`'s own `@State`.
     var dexDetailCollectionID: String? {
-        didSet { if dexDetailCollectionID == nil { dexDetailForm = nil; dexDetailHistory = [] } }
+        didSet { if dexDetailCollectionID == nil { dexDetailForm = nil; dexDetailHistory = []; dexDetailFromBattleForms = false } }
+    }
+    /// Whether the open page came from the Battle Forms screen: Back returns there (`returnToBattleForms`).
+    var dexDetailFromBattleForms = false
+
+    /// A won battle form clicked on the Battle Forms screen: its species' page, open in that form.
+    func openBattleForm(_ form: BattleForm, collectionID: String) {
+        showingBattleForms = false
+        showSettings = false
+        tab = .collection
+        dexDetailHistory = []
+        dexDetailCollectionID = collectionID
+        dexDetailForm = form.form
+        dexDetailFromBattleForms = true
+    }
+
+    /// Back from a page the Battle Forms screen opened: that screen again. False for any other page.
+    func returnToBattleForms() -> Bool {
+        guard dexDetailFromBattleForms else { return false }
+        dexDetailCollectionID = nil
+        showingBattleForms = true
+        return true
     }
     /// The form the open page shows first when another page's evolution family opened it: Alolan Ninetales from
     /// Alolan Vulpix. Nil from the grid, the log and Home.
@@ -206,6 +230,7 @@ final class PopoverNavigation {
         showingTypeChart = false
         showingCollectionStats = false
         showingCostumes = false
+        showingBattleForms = false
         showingRunHistory = false
         pastRun = nil
         replayBattle = nil
@@ -330,6 +355,9 @@ struct PopoverView: View {
                 CollectionStatsScreen(store: companion) { nav.showingCollectionStats = false }
             } else if nav.showingCostumes {
                 CostumeCollectionScreen(store: companion) { nav.showingCostumes = false }
+            } else if nav.showingBattleForms {
+                BattleFormsScreen(store: companion, wonOnly: $nav.battleFormsWonOnly) { nav.showingBattleForms = false }
+                    onOpen: { form, collectionID in nav.openBattleForm(form, collectionID: collectionID) }
             } else if nav.showingLuck {
                 LuckScreen(store: companion, nav: nav) { nav.showingLuck = false }
             } else {
