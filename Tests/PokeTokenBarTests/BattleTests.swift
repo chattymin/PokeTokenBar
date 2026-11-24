@@ -6,13 +6,9 @@ import XCTest
 
 @MainActor
 final class BattleTests: XCTestCase {
-    override func tearDown() {
-        BattleSession.localAddresses = BattleSession.interfaceAddresses
-        super.tearDown()
-    }
-
     /// Only VPN (point-to-point) subnets are searched, as a /24 without our own address.
     func testVPNSearchCoversOnlyPointToPointSubnets() {
+        defer { BattleSession.localAddresses = BattleSession.interfaceAddresses }
         BattleSession.localAddresses = { [("192.168.1.20", false), ("10.8.0.2", true)] }
         let hosts = BattleSession.vpnHosts()
         XCTAssertEqual(hosts.count, 253)
@@ -280,6 +276,7 @@ final class BattleTests: XCTestCase {
         try await render(BattleView(store: store, session: host, playerName: "Ash"), to: output, name: "team")
 
         BattleSession.localAddresses = { [("192.168.1.20", false), ("10.8.0.2", true)] }   // sample, not this Mac's
+        defer { BattleSession.localAddresses = BattleSession.interfaceAddresses }
         let me = BattlePlayer(name: "Ash", team: [member(3, level: 50, moves: ["vine-whip", "sleep-powder", "sludge-bomb", "synthesis"], name: "Venusaur"),
                                                   member(25, level: 30, moves: ["thunder-shock"], name: "Pikachu")],
                               lang: language.rawValue)
