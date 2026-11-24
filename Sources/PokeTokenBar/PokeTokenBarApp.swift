@@ -23,6 +23,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var store: UsageStore!
     private var companion: CompanionStore!
     private var updater: UpdateChecker!
+    private var pricingRefreshTask: Task<Void, Never>?
     private var floatingPet: FloatingPetController!
     private let navigation = PopoverNavigation()
 
@@ -103,7 +104,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if AppEnv.isBundledApp {
             LoginItem.system.migrateFromLegacyAgentIfNeeded()
         }
-        store = UsageStore()
+        store = UsageStore(autoRefresh: false)
+        Task {
+            let cached = await ModelPricingRefresh.shared.cachedCatalog()
+            await store.refresh(pricingCatalog: cached)
+        }
         companion = CompanionStore()
         Task { await companion.preparePokemonProfiles() }
         updater = UpdateChecker()
@@ -286,6 +291,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func onStoreRefreshed() {
         updateCompanion()
         companion.grantCandies(from: store.candyEligibleWindows, limitsReady: store.limitsReady)
+        // Only check after the local totals are visible. The price cache handles the daily interval.
+        guard pricingRefreshTask == nil else { return }
+        pricingRefreshTask = Task {
+            defer { pricingRefreshTask = nil }
+            if let catalog = await ModelPricingRefresh.shared.refreshIfNeeded() {
+                await store.refresh(pricingCatalog: catalog)
+            }
+        }
     }
 
     // MARK: 메뉴바 애니메이션

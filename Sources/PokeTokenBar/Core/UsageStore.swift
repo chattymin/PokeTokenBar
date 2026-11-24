@@ -49,6 +49,7 @@ final class UsageStore {
     private(set) var statuses: [String: ProviderStatus] = [:]
     private(set) var lastUpdated: Date?
     private(set) var isRefreshing = false
+    @ObservationIgnored private var pendingPricingCatalog: ModelPricingCatalog?
     private var refreshPending = false          // 진행 중 refresh 에 겹친 요청을 1회 코얼레싱(드롭 방지)
     private(set) var isRefreshingLimitToken = false
     private(set) var isRefreshingAntigravityLimits = false
@@ -1092,12 +1093,18 @@ final class UsageStore {
 
     // MARK: 갱신
 
-    func refresh(scheduleEmptyRetry: Bool = true) async {
+    func refresh(scheduleEmptyRetry: Bool = true, pricingCatalog: ModelPricingCatalog? = nil) async {
+        if let pricingCatalog { pendingPricingCatalog = pricingCatalog }
         // 진행 중이면 드롭하지 말고 예약 — 완료 후 1회 재실행(코얼레싱). 수동모드(interval 0)에서 키체인
         // 재활성(disableKeychainAccess didSet)의 refresh 가 in-flight 폴에 묻혀, 자동폴이 없는 탓에
         // Claude 한도가 다음 수동 액션까지 빈 채로 남던 회귀 방지.
         if isRefreshing { refreshPending = true; return }
         isRefreshing = true
+        // Switch prices between passes so daily and period totals use the same rates.
+        if let pendingPricingCatalog {
+            ModelPricing.install(pendingPricingCatalog)
+            self.pendingPricingCatalog = nil
+        }
         clearStaleSuspension(reason: "refresh")
         // App Nap 방지 — 백그라운드 스로틀로 로그 파싱·codex 조회가 타임아웃되는 것을 막는다 (시스템 슬립은 허용)
         let activity = ProcessInfo.processInfo.beginActivity(

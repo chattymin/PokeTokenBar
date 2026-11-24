@@ -90,11 +90,13 @@ final class GeminiUsageTests: XCTestCase {
         XCTAssertTrue(entries.isEmpty)
     }
 
-    /// Gemini 단가 — 정확 매칭 + pro/flash 패밀리 폴백 + 미지 변형은 0.
+    /// The bundled catalog prices exact Gemini IDs, including newer preview models.
     func testGeminiPricing() {
         XCTAssertEqual(ModelPricing.rate(for: "gemini-2.5-pro"), .perMillion(1.25, 10, 0, 0.125))
         XCTAssertEqual(ModelPricing.rate(for: "gemini-2.5-flash"), .perMillion(0.30, 2.5, 0, 0.03))
-        XCTAssertEqual(ModelPricing.rate(for: "gemini-3.1-pro-preview"), .zero)
+        XCTAssertEqual(ModelPricing.rate(for: "gemini-3.1-pro-preview"), .perMillion(2, 12, 0, 0.2))
+        XCTAssertEqual(ModelPricing.rate(for: "gemini-3.5-flash"), ModelPricing.rate(for: "gemini-3.6-flash"))
+        XCTAssertEqual(ModelPricing.rate(for: "gemini-3.7-flash"), ModelPricing.rate(for: "gemini-3.8-flash"))
         XCTAssertEqual(ModelPricing.rate(for: "gemini-3-flash-lite"), .zero)
         XCTAssertEqual(ModelPricing.rate(for: "gemini-nano-banana"), .zero, "미지 변형은 오표시 방지 위해 0")
         // 실제 비용 산술 (m2 케이스): 420 in + 80 out + 600 cacheR @2.5-pro
