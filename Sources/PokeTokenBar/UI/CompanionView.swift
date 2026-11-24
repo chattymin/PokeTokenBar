@@ -1021,6 +1021,7 @@ struct CompanionHeader: View {
     @State private var candyXPShown = false
     @State private var candyXPAmount = 0     // 표시 순간 캡처(consume 후에도 텍스트 유지)
     @State private var candyRechargedAmount = 0
+    @State private var candyCrumbLines: [String] = []
 
     /// Hover tooltip for the growth bars: "X / Y · Z%". Used is clamped to total (egg usage can
     /// overshoot while a hatch retry is pending) and the percent floors, so 100% means done.
@@ -1097,16 +1098,16 @@ struct CompanionHeader: View {
                     }
                     .overlay(alignment: .top) {
                         if candyXPShown {
-                            // The Shock Drive's recharged candies, a bolt as on its sprite: no words to translate.
-                            (Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
-                                + (candyRechargedAmount > 0
-                                    ? Text("  ") + Text(Image(systemName: "bolt.fill")) + Text("+\(candyRechargedAmount)")
-                                    : Text("")))
-                                .font(.caption.weight(.bold)).foregroundStyle(Color.readableOrange)
-                                .padding(.horizontal, 6).padding(.vertical, 2)
-                                .background(.regularMaterial, in: Capsule())
-                                .transition(.move(edge: .bottom).combined(with: .opacity))
-                                .offset(y: -16)
+                            VStack(spacing: 2) {
+                                // The Shock Drive's recharged candies, a bolt as on its sprite: no words to translate.
+                                candyPill(Text("+\(TokenFormatter.compact(candyXPAmount)) XP")
+                                    + (candyRechargedAmount > 0
+                                        ? Text("  ") + Text(Image(systemName: "bolt.fill")) + Text("+\(candyRechargedAmount)")
+                                        : Text("")))
+                                ForEach(candyCrumbLines, id: \.self) { candyPill(Text($0)) }
+                            }
+                            .transition(.move(edge: .bottom).combined(with: .opacity))
+                            .offset(y: -16)
                         }
                     }
                     // Outermost, so the celebration overlays and animations above stay intact.
@@ -1265,6 +1266,13 @@ struct CompanionHeader: View {
         }
     }
 
+    private func candyPill(_ text: Text) -> some View {
+        text.font(.caption.weight(.bold)).foregroundStyle(Color.readableOrange)
+            .padding(.horizontal, 6).padding(.vertical, 2)
+            .background(.regularMaterial, in: Capsule())
+            .fixedSize()
+    }
+
     /// 사탕 사용 "+XP" 1회 표시. store 를 consume 해 1회성 보장 — 다른 탭 갔다 홈 재진입해
     /// CompanionHeader 가 재마운트(@State 초기화)돼도 다시 뜨지 않는다(회귀 수정).
     private func showCandyXPIfNeeded() {
@@ -1272,6 +1280,11 @@ struct CompanionHeader: View {
         seenCandySeq = store.candyFeedbackSeq
         candyXPAmount = store.candyFeedbackAmount
         candyRechargedAmount = store.candyFeedbackRecharged
+        let made = store.candyFeedbackCrumbCandies
+        candyCrumbLines = store.candyFeedbackCrumbs > 0
+            ? [store.l.candyCrumbsGained(store.candyFeedbackCrumbs)]
+                + (made > 0 ? ["+\(made) \(store.l.itemName(.rareCandy))"] : [])
+            : []
         store.consumeCandyFeedback()
         withAnimation(.spring(response: 0.4, dampingFraction: 0.6)) { candyXPShown = true }
         Task { @MainActor in

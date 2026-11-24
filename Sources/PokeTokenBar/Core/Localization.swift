@@ -1844,13 +1844,27 @@ struct L {
           "Nach der Entwicklung: voraussichtlich \(xp) EP übertragen.",
           "После эволюции ожидается перенос \(xp) XP.")
     }
-    func candyDiscardedXP(_ xp: String) -> String {
-        t("졸업 시 남는 \(xp) XP는 사라져요.", "On graduation, \(xp) leftover XP will be discarded.",
-          "卒業時、余った\(xp) XPは失われます。", "Al graduarse, se perderán \(xp) XP sobrantes.",
-          "À la fin de la croissance, les \(xp) XP restants seront perdus.",
-          "Ao se formar, \(xp) XP restantes serão descartados.",
-          "Beim Trainingsabschluss verfallen \(xp) überschüssige EP.",
-          "При выпуске сгорит остаток: \(xp) XP.")
+    /// With the crumbs that waste leaves (`RareCandy.crumbXP`), when it leaves any.
+    func candyDiscardedXP(_ xp: String, crumbs: Int) -> String {
+        let gain = crumbs > 0 ? candyCrumbsGained(crumbs) : nil
+        let p = gain.map { " (\($0))" } ?? ""
+        return t("졸업 시 남는 \(xp) XP는 사라져요\(p).", "On graduation, \(xp) leftover XP will be discarded\(p).",
+                 "卒業時、余った\(xp) XPは失われます\(gain.map { "（\($0)）" } ?? "")。",
+                 "Al graduarse, se perderán \(xp) XP sobrantes\(p).",
+                 "À la fin de la croissance, les \(xp) XP restants seront perdus\(p).",
+                 "Ao se formar, \(xp) XP restantes serão descartados\(p).",
+                 "Beim Trainingsabschluss verfallen \(xp) überschüssige EP\(p).",
+                 "При выпуске сгорит остаток: \(xp) XP\(p).")
+    }
+    func candyCrumbsGained(_ n: Int) -> String {
+        let ru = n % 10 == 1 && n % 100 != 11 ? "крошка" : (2...4).contains(n % 10) && !(12...14).contains(n % 100) ? "крошки" : "крошек"
+        return t("사탕 부스러기 +\(n)", "+\(n) \(n == 1 ? "crumb" : "crumbs")", "アメのかけら +\(n)",
+                 "+\(n) \(n == 1 ? "migaja" : "migajas")", "+\(n) \(n == 1 ? "miette" : "miettes")",
+                 "+\(n) \(n == 1 ? "migalha" : "migalhas")", "+\(n) Krümel", "+\(n) \(ru)")
+    }
+    func candyCrumbsCount(_ n: Int, of total: Int) -> String {
+        t("사탕 부스러기: \(n)/\(total)", "Crumbs: \(n)/\(total)", "アメのかけら：\(n)/\(total)", "Migajas: \(n)/\(total)",
+          "Miettes : \(n)/\(total)", "Migalhas: \(n)/\(total)", "Krümel: \(n)/\(total)", "Крошки: \(n)/\(total)")
     }
 
     /// 포켓몬 타입 표시명.

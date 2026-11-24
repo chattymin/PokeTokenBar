@@ -51,3 +51,7 @@ _Avoid_: Defense
 **Hideout**:
 A villains' team's dungeon, where what it took waits behind its boss and three Pokémon. Beating its leader gives it all back, with the leader's chest.
 _Avoid_: Lair
+
+**Candy Crumb**:
+What a Rare Candy's EXP thrown away at a graduation leaves behind: one per tenth of a plain candy's EXP, the remainder lost. A hundred make a Rare Candy. Not an item of the Bag.
+_Avoid_: Shard, fragment

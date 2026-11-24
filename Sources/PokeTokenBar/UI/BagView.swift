@@ -36,7 +36,7 @@ struct BagView: View {
 
     @ViewBuilder
     private var content: some View {
-        let owned = store.ownedItems
+        let owned = store.bagItems
         let eggs = store.dungeonProgress.eggs
         let costumeEggs = store.costumeEggStacks
         let specialEggs = eggs.count + costumeEggs.count
@@ -224,6 +224,10 @@ private struct ItemCard: View {
                         .font(.caption).foregroundStyle(.secondary)
                         .lineSpacing(Design.productLineSpacing)
                         .fixedSize(horizontal: false, vertical: true)
+                    if kind == .rareCandy, store.state.candyCrumbs > 0 {
+                        Text(l.candyCrumbsCount(store.state.candyCrumbs, of: RareCandy.crumbsPerCandy))
+                            .font(.caption2).foregroundStyle(.secondary).monospacedDigit()
+                    }
                     // A stone or a Shop egg sends the companion off: say what stays.
                     if kind.stoneType != nil || kind.isShopEgg, store.hasActive {
                         Text(l.eggReleaseNote)
@@ -241,14 +245,16 @@ private struct ItemCard: View {
                     Text(l.candyGraduates).font(.caption2).foregroundStyle(.secondary)
                 }
                 if preview.discardedXP > 0 {
-                    Text(l.candyDiscardedXP(TokenFormatter.compact(preview.discardedXP)))
+                    Text(l.candyDiscardedXP(TokenFormatter.compact(preview.discardedXP), crumbs: preview.crumbs))
                         .font(.caption2).foregroundStyle(Color.readableOrange).fixedSize(horizontal: false, vertical: true)
                 } else if preview.evolves && !preview.graduates {
                     Text(l.candyCarryoverXP(TokenFormatter.compact(preview.carryoverXP)))
                         .font(.caption2).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
                 }
             }
-            useControls(l)
+            if count > 0 {
+                useControls(l)
+            }
         }
         .productCard()
         .onChange(of: store.maxRareCandyUseCount) { _, _ in

@@ -958,6 +958,10 @@ enum RareCandy {
     /// used (usedSinceInstall minus spentTokens), which also grew the Pokémon, so a candy priced at its XP would be
     /// free growth. Candies also come free from the limit windows, paid as they fill (`candiesDue`).
     static let price = 500_000_000
+    /// A candy's EXP thrown away at a graduation leaves a crumb per tenth of a plain candy, the Soul Dew's or not; a
+    /// hundred make a candy (2026-11-24: a small amends, never as good as letting tokens finish the Pokémon).
+    static let crumbXP = xp / 10
+    static let crumbsPerCandy = 100
 
     /// Candies a whole window pays: one 5-hour session of a Pro plan is one candy, a Pro week `weeklyGrant`, and a
     /// bigger plan as many times more as it holds Pro plans (Max 20x: 20 a session).
@@ -1779,6 +1783,8 @@ struct CompanionState: Codable, Sendable, Equatable {
     /// and the candies they paid.
     var tokenCandyTokens = 0
     var tokenCandiesEarned = 0
+    /// The crumbs toward the next Rare Candy (`RareCandy.crumbXP`). Not an item: no theft, merchant or Shop reaches them.
+    var candyCrumbs = 0
     // 사탕 지급 첫 실행 시드 완료 — 업데이트 직후 이미 100%였던 창의 소급 지급 차단.
     var candyFeatureSeeded = false
     /// Windows pay their candies as they go (`RareCandy.candiesDue`). A save from before has `false`: its windows'
@@ -1842,6 +1848,7 @@ struct CompanionState: Codable, Sendable, Equatable {
         candyWindowPlan    = c.lenient([String: Int].self, forKey: .candyWindowPlan, default: [:])
         tokenCandyTokens   = c.lenient(Int.self, forKey: .tokenCandyTokens, default: 0)
         tokenCandiesEarned = c.lenient(Int.self, forKey: .tokenCandiesEarned, default: 0)
+        candyCrumbs        = c.lenient(Int.self, forKey: .candyCrumbs, default: 0)
         candyFeatureSeeded = c.lenient(Bool.self, forKey: .candyFeatureSeeded, default: false)
         candyGrantsAsYouGo = c.lenient(Bool.self, forKey: .candyGrantsAsYouGo, default: false)
         additiveGrowthBonuses = c.lenient(Bool.self, forKey: .additiveGrowthBonuses, default: false)

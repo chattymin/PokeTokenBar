@@ -417,6 +417,21 @@ final class DittoRevealTests: XCTestCase {
         XCTAssertEqual(s.currentSpeciesID, 1, "여전히 위장체")
     }
 
+    /// Its candies stop at the reveal: the apparent Pokémon's graduation never comes, nor its crumbs.
+    func testACandyOnADisguisedDittoLeavesNoCrumb() async throws {
+        let s = seedDisguise()
+        await drainReveal(s)
+        s.grantCandies(from: [], limitsReady: true)
+        for key in ["crumbs.weekly.1", "crumbs.weekly.2"] {
+            s.grantCandiesFilling([CandyWindow(key: key, name: "Test", kind: .weekly, utilization: 100)])
+        }
+        XCTAssertEqual(try XCTUnwrap(s.planRareCandyUse(count: 8)).crumbs, 5, "the apparent Pokémon would graduate")
+        _ = s.useRareCandy(count: 8)
+        await drainReveal(s)
+        XCTAssertTrue(s.state.active?.dittoRevealed ?? false)
+        XCTAssertEqual(s.state.candyCrumbs, 0)
+    }
+
     func testCandyPickerMatchesApparentPokemonButOnlySpendsEnoughToReveal() async throws {
         let s = seedDisguise(usedAtStage: 100_000_000)
         await drainReveal(s)
