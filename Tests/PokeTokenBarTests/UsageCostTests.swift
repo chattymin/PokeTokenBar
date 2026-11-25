@@ -3,7 +3,7 @@ import SwiftUI
 import XCTest
 @testable import PokeTokenBar
 
-private struct CostTestProvider: UsageProvider {
+struct CostTestProvider: UsageProvider {
     let id: String
     var displayName: String { id }
     let entries: [LocalUsageReader.Entry]
@@ -197,7 +197,7 @@ final class UsageCostTests: XCTestCase {
         defer { try? FileManager.default.removeItem(at: root) }
         let stamp = ISO8601DateFormatter().string(from: Date())
         let rows: [[String: Any]] = [
-            ["timestamp": stamp, "type": "turn_context", "payload": ["model": "gpt-5.5"]],
+            ["timestamp": stamp, "type": "turn_context", "payload": ["model": "gpt-6.2-sol"]],
             ["timestamp": stamp, "type": "event_msg", "payload": ["type": "token_count", "info": ["last_token_usage": ["input_tokens": 1_500, "cached_input_tokens": 500, "output_tokens": 100, "total_tokens": 1_600]]]],
             ["timestamp": stamp, "type": "event_msg", "payload": ["type": "token_count", "info": ["last_token_usage": ["total_tokens": 70]]]]
         ]
@@ -210,7 +210,8 @@ final class UsageCostTests: XCTestCase {
             let fetched = try await provider.fetchDaily()
             let daily = try XCTUnwrap(fetched)
             XCTAssertEqual(daily.totalTokens, 1_670)
-            XCTAssertEqual(daily.totalCost, 0.00825, accuracy: 1e-12)
+            // 1,000 uncached input, 500 cached input and 100 output tokens at Sol rates.
+            XCTAssertEqual(daily.totalCost, 0.00305, accuracy: 1e-12)
             XCTAssertEqual(daily.costCoverage, CostCoverage(estimated: true, unknown: true))
             let enrichment = await provider.fetchEnrichment()
             XCTAssertEqual(enrichment.monthTotal?.costCoverage, daily.costCoverage)

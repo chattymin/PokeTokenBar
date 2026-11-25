@@ -8,6 +8,7 @@ let package = Package(
         .executableTarget(
             name: "PokeTokenBar",
             path: "Sources/PokeTokenBar",
+            resources: [.copy("Resources/model-prices.json")],
             linkerSettings: [.linkedLibrary("sqlite3")]
         ),
         .testTarget(
